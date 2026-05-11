@@ -11,7 +11,9 @@ const initialForm = {
   requiredServices: "",
   budgetRange: "",
   timeline: "",
-  proposalObjective: ""
+  proposalObjective: "",
+  notes: "",
+  useKnowledgeBase: false
 };
 
 export function ProposalBuilder() {
@@ -39,10 +41,10 @@ export function ProposalBuilder() {
       return;
     }
 
-    setOutput(payload.data);
+    setOutput(normalizeProposalOutput(payload.data, form));
   }
 
-  function updateField(field: keyof typeof form, value: string) {
+  function updateField(field: keyof typeof form, value: string | boolean) {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -88,6 +90,17 @@ export function ProposalBuilder() {
           <Field label="Proposal objective">
             <TextArea value={form.proposalObjective} onChange={(event) => updateField("proposalObjective", event.target.value)} />
           </Field>
+          <Field label="Notes">
+            <TextArea value={form.notes} onChange={(event) => updateField("notes", event.target.value)} />
+          </Field>
+          <label className="flex items-center gap-2 text-sm font-medium text-neutral-700">
+            <input
+              type="checkbox"
+              checked={form.useKnowledgeBase}
+              onChange={(event) => updateField("useKnowledgeBase", event.target.checked)}
+            />
+            Use Knowledge Base
+          </label>
           {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
           {saveMessage ? <p className="text-sm font-medium text-leaf">{saveMessage}</p> : null}
           <div className="flex flex-wrap gap-3">
@@ -111,6 +124,7 @@ export function ProposalBuilder() {
           <div className="grid gap-5">
             <h2 className="text-2xl font-semibold text-ink">{output.proposalTitle}</h2>
             <OutputBlock title="Executive summary" content={output.executiveSummary} />
+            <OutputBlock title="Client understanding" content={output.clientUnderstanding} />
             <OutputList title="Scope of services" items={output.scopeOfServices} />
             <OutputList title="Deliverables" items={output.deliverables} />
             <OutputBlock title="Timeline" content={output.timeline} />
@@ -148,4 +162,53 @@ function OutputList({ title, items }: { title: string; items: string[] }) {
       </ul>
     </div>
   );
+}
+
+function normalizeProposalOutput(value: unknown, form: typeof initialForm): ProposalOutput {
+  const record = unwrapRecord(value);
+
+  return {
+    proposalTitle: toText(record.proposalTitle ?? record.proposal_title, `${form.clientName || "Client"} Growth Proposal`),
+    executiveSummary: toText(record.executiveSummary ?? record.executive_summary, "Executive summary was not provided."),
+    clientUnderstanding: toText(
+      record.clientUnderstanding ?? record.client_understanding,
+      `${form.clientName || "The client"} needs a focused plan for ${form.proposalObjective || "the stated objective"}.`
+    ),
+    scopeOfServices: toList(record.scopeOfServices ?? record.scope_of_services, form.requiredServices),
+    deliverables: toList(record.deliverables, "Strategy roadmap, execution plan, reporting"),
+    timeline: toText(record.timeline, form.timeline || "Timeline to be confirmed."),
+    commercialStructure: toText(record.commercialStructure ?? record.commercial_structure, form.budgetRange || "Commercials to be confirmed."),
+    termsAndConditions: toList(record.termsAndConditions ?? record.terms_and_conditions, "Final scope subject to discovery."),
+    nextSteps: toList(record.nextSteps ?? record.next_steps, "Confirm scope, approve commercials, schedule kickoff")
+  };
+}
+
+function unwrapRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+
+  const record = value as Record<string, unknown>;
+  for (const key of ["proposal", "proposalRecord", "proposal_record", "output", "data", "result"]) {
+    const nested = record[key];
+    if (nested && typeof nested === "object") return nested as Record<string, unknown>;
+  }
+
+  return record;
+}
+
+function toText(value: unknown, fallback: string) {
+  if (typeof value === "string" && value.trim()) return value;
+  if (Array.isArray(value)) return value.map((item) => String(item)).join("\n");
+  if (value && typeof value === "object") return JSON.stringify(value, null, 2);
+  return fallback;
+}
+
+function toList(value: unknown, fallback: string) {
+  if (Array.isArray(value)) return value.map((item) => toText(item, "")).filter(Boolean);
+  if (typeof value === "string" && value.trim()) {
+    return value
+      .split(/\n|,/)
+      .map((item) => item.trim().replace(/^[-*]\s*/, ""))
+      .filter(Boolean);
+  }
+  return fallback.split(",").map((item) => item.trim()).filter(Boolean);
 }

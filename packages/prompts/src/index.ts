@@ -11,7 +11,23 @@ import type {
 export function proposalPrompt(input: ProposalInput) {
   return [
     "You are Markitome AI, an internal marketing strategy assistant.",
-    "Create a professional client proposal in structured JSON.",
+    "Create a professional client proposal.",
+    "Return only one JSON object. Use these exact camelCase keys and value types:",
+    JSON.stringify(
+      {
+        proposalTitle: "string",
+        executiveSummary: "string",
+        clientUnderstanding: "string",
+        scopeOfServices: ["string"],
+        deliverables: ["string"],
+        timeline: "string",
+        commercialStructure: "string",
+        termsAndConditions: ["string"],
+        nextSteps: ["string"]
+      },
+      null,
+      2
+    ),
     `Client name: ${input.clientName}`,
     `Client website: ${input.clientWebsite}`,
     `Industry: ${input.industry}`,
@@ -19,7 +35,9 @@ export function proposalPrompt(input: ProposalInput) {
     `Budget range: ${input.budgetRange}`,
     `Timeline: ${input.timeline}`,
     `Objective: ${input.proposalObjective}`,
-    "Return: proposalTitle, executiveSummary, scopeOfServices, deliverables, timeline, commercialStructure, termsAndConditions, nextSteps."
+    `Notes: ${input.notes}`,
+    `Use knowledge base: ${Boolean(input.useKnowledgeBase)}`,
+    "Do not wrap the response in markdown. Do not add keys outside the schema."
   ].join("\n");
 }
 
@@ -30,7 +48,7 @@ export function chatPrompt(input: ChatInput) {
     `Message: ${input.message}`,
     `Context: ${input.context}`,
     `Knowledge source: ${input.knowledgeSource}`,
-    "Return JSON: response, suggestedActions, sourceReferences."
+    "Return only JSON with exact keys: response (string), suggestedActions (string array), sourceReferences (string array)."
   ].join("\n");
 }
 
@@ -43,7 +61,9 @@ export function blogPrompt(input: BlogInput) {
     `Target keyword: ${input.targetKeyword}`,
     `Tone: ${input.tone}`,
     `Word count: ${input.wordCount}`,
-    "Return JSON: seoTitle, metaTitle, metaDescription, blogOutline, fullBlogDraft, faqs, schemaFriendlyStructure."
+    `Audience: ${input.audience}`,
+    `Use knowledge base: ${Boolean(input.useKnowledgeBase)}`,
+    "Return only JSON with exact keys: seoTitle, metaTitle, metaDescription, slug, blogOutline, fullArticle, fullBlogDraft, faqs, internalLinkingSuggestions, schemaFriendlyStructure."
   ].join("\n");
 }
 
@@ -55,7 +75,9 @@ export function presentationPrompt(input: PresentationInput) {
     `Objective: ${input.objective}`,
     `Audience: ${input.audience}`,
     `Number of slides: ${input.numberOfSlides}`,
-    "Return JSON: slideTitles, slideWiseContent, speakerNotes, suggestedVisuals, googleSlidesDraftPlaceholder."
+    `Tone: ${input.tone}`,
+    `Use knowledge base: ${Boolean(input.useKnowledgeBase)}`,
+    "Return only JSON with exact keys: slideTitles, slideWiseContent, speakerNotes, suggestedVisuals, ctaSlide, googleSlidesDraftPlaceholder."
   ].join("\n");
 }
 
@@ -68,7 +90,9 @@ export function imageStudioPrompt(input: ImageStudioInput) {
     `Campaign objective: ${input.campaignObjective}`,
     `Image description: ${input.imageDescription}`,
     `Text overlay: ${input.textOverlay}`,
-    "Return JSON: generatedImagePlaceholder, promptUsed, captionOptions, designerNotes."
+    `Style direction: ${input.styleDirection}`,
+    `Client name: ${input.clientName}`,
+    "Return only JSON with exact keys: generatedImagePlaceholder, imageUrl, promptUsed, captionOptions, designerNotes."
   ].join("\n");
 }
 
@@ -79,7 +103,8 @@ export function emailPrompt(input: EmailInput) {
     `Purpose: ${input.purpose}`,
     `Tone: ${input.tone}`,
     `Key points: ${input.keyPoints}`,
-    "Return JSON: emailSubject, emailBody, shortFollowUpVersion, whatsappVersion."
+    `Desired CTA: ${input.desiredCta}`,
+    "Return only JSON with exact keys: emailSubject, emailBody, shortFollowUpVersion, whatsappVersion."
   ].join("\n");
 }
 
@@ -90,6 +115,6 @@ export function knowledgePrompt(input: KnowledgeInput) {
     `Source: ${input.source}`,
     `Tags: ${input.tags}`,
     `Content: ${input.content}`,
-    "Return JSON: indexedDocument, vectorIds, searchPreview, auditTrail."
+    "Return only JSON with exact keys: indexedDocument, vectorIds, searchPreview, auditTrail."
   ].join("\n");
 }

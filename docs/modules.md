@@ -11,27 +11,27 @@ Outputs: assistant response, suggested actions, source references.
 
 ## Proposal Builder
 
-Inputs: client name, client website, industry, required services, budget range, timeline, proposal objective.
-Outputs: proposal title, executive summary, scope of services, deliverables, timeline, commercial structure, terms and conditions, next steps.
+Inputs: client name, client website, industry, required services, budget range, timeline, proposal objective, notes, optional knowledge-base toggle.
+Outputs: proposal title, executive summary, client understanding, scope of services, deliverables, timeline, commercial structure, terms and conditions, next steps.
 
 ## Blog Writer
 
-Inputs: client name, website, topic, target keyword, tone, word count.
-Outputs: SEO title, meta title, meta description, blog outline, full blog draft, FAQs, schema-friendly structure.
+Inputs: client name, website, topic, target keyword, tone, word count, audience, optional knowledge-base toggle.
+Outputs: SEO title, meta title, meta description, slug, blog outline, full article, full blog draft, FAQs, internal linking suggestions, schema-friendly structure.
 
 ## Presentation Builder
 
-Inputs: client name, topic, objective, audience, number of slides.
-Outputs: slide titles, slide-wise content, speaker notes, suggested visuals, Google Slides draft placeholder.
+Inputs: client name, topic, objective, audience, number of slides, tone, optional knowledge-base toggle.
+Outputs: slide titles, slide-wise content, speaker notes, suggested visuals, CTA slide, Google Slides draft placeholder.
 
 ## Image Studio
 
-Inputs: platform, format, brand colors, campaign objective, image description, text overlay.
-Outputs: generated image placeholder, prompt used, caption options, designer notes.
+Inputs: client name, platform, format, brand colors, campaign objective, image description, text overlay, style direction.
+Outputs: generated image placeholder, optional image URL, prompt used, caption options, designer notes.
 
 ## Email Assistant
 
-Inputs: recipient context, purpose, tone, key points.
+Inputs: recipient context, purpose, tone, key points, desired CTA.
 Outputs: email subject, email body, short follow-up version, WhatsApp version.
 
 ## Knowledge Base

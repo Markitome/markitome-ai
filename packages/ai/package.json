@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@opennextjs/cloudflare": "^1.19.9",
     "@markitome/prompts": "workspace:*",
     "@markitome/shared": "workspace:*"
   },

@@ -7,6 +7,7 @@ type FieldConfig = {
   name: string;
   label: string;
   multiline?: boolean;
+  checkbox?: boolean;
   placeholder?: string;
 };
 
@@ -17,7 +18,7 @@ export function WorkflowForm({
 }: {
   workflow: string;
   fields: FieldConfig[];
-  initialValues: Record<string, string>;
+  initialValues: Record<string, string | boolean>;
 }) {
   const [form, setForm] = useState(initialValues);
   const [output, setOutput] = useState<unknown>(null);
@@ -45,7 +46,7 @@ export function WorkflowForm({
     setOutput(payload.data);
   }
 
-  function setField(name: string, value: string) {
+  function setField(name: string, value: string | boolean) {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
@@ -54,21 +55,32 @@ export function WorkflowForm({
       <section className="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4">
           {fields.map((field) => (
-            <Field key={field.name} label={field.label}>
-              {field.multiline ? (
+            field.checkbox ? (
+              <label key={field.name} className="flex items-center gap-2 text-sm font-medium text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form[field.name])}
+                  onChange={(event) => setField(field.name, event.target.checked)}
+                />
+                {field.label}
+              </label>
+            ) : (
+              <Field key={field.name} label={field.label}>
+                {field.multiline ? (
                 <TextArea
                   placeholder={field.placeholder}
-                  value={form[field.name] ?? ""}
+                  value={String(form[field.name] ?? "")}
                   onChange={(event) => setField(field.name, event.target.value)}
                 />
               ) : (
                 <TextInput
                   placeholder={field.placeholder}
-                  value={form[field.name] ?? ""}
+                  value={String(form[field.name] ?? "")}
                   onChange={(event) => setField(field.name, event.target.value)}
                 />
               )}
-            </Field>
+              </Field>
+            )
           ))}
           {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
           <Button onClick={generate} disabled={isGenerating}>

@@ -51,6 +51,11 @@ export async function callWorkersAI<T = unknown>(request: WorkersAIRequest): Pro
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   const model = request.model ?? routeModel("text");
 
+  const bindingResponse = await callWorkersAIBinding(model, request.messages);
+  if (bindingResponse) {
+    return bindingResponse as T;
+  }
+
   if (!accountId || !apiToken) {
     return {
       placeholder: true,
@@ -94,7 +99,7 @@ export async function generateStructuredOutput<T>(prompt: string): Promise<T> {
   }
 
   const text = response.result?.response ?? "{}";
-  return JSON.parse(text) as T;
+  return JSON.parse(extractJson(text)) as T;
 }
 
 export async function generateImage(prompt: string) {
@@ -125,116 +130,155 @@ export async function searchVectorize(query: string) {
 }
 
 export async function generateProposal(input: ProposalInput): Promise<ProposalOutput> {
-  if (!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) {
-    return {
-      proposalTitle: `${input.clientName} Growth Proposal`,
-      executiveSummary: `A placeholder proposal for ${input.clientName}, focused on ${input.proposalObjective}.`,
-      scopeOfServices: input.requiredServices.split(",").map((service) => service.trim()).filter(Boolean),
-      deliverables: ["Discovery workshop", "Strategy roadmap", "Execution plan", "Performance reporting"],
-      timeline: input.timeline,
-      commercialStructure: input.budgetRange,
-      termsAndConditions: ["Final scope subject to discovery.", "Commercials exclude third-party media and tool costs."],
-      nextSteps: ["Confirm scope", "Approve commercials", "Schedule kickoff"]
-    };
-  }
-
-  return generateStructuredOutput<ProposalOutput>(proposalPrompt(input));
+  return generateWithFallback<ProposalOutput>(proposalPrompt(input), {
+    proposalTitle: `${input.clientName} Growth Proposal`,
+    executiveSummary: `A launch-ready proposal draft for ${input.clientName}, focused on ${input.proposalObjective}.`,
+    clientUnderstanding: `${input.clientName} needs a practical, measurable marketing plan for ${input.industry || "its market"}.`,
+    scopeOfServices: input.requiredServices.split(",").map((service) => service.trim()).filter(Boolean),
+    deliverables: ["Discovery workshop", "Strategy roadmap", "Execution plan", "Performance reporting"],
+    timeline: input.timeline,
+    commercialStructure: input.budgetRange,
+    termsAndConditions: ["Final scope subject to discovery.", "Commercials exclude third-party media and tool costs."],
+    nextSteps: ["Confirm scope", "Approve commercials", "Schedule kickoff"]
+  });
 }
 
 export async function generateChatResponse(input: ChatInput): Promise<ChatOutput> {
-  if (!hasWorkersAIConfig()) {
-    return {
-      response: `Here is a practical starting point: ${input.message}`,
-      suggestedActions: ["Clarify the desired outcome", "Collect any client-specific context", "Turn the result into a reusable workflow"],
-      sourceReferences: input.knowledgeSource ? [input.knowledgeSource] : []
-    };
-  }
-
-  return generateStructuredOutput<ChatOutput>(chatPrompt(input));
+  return generateWithFallback<ChatOutput>(chatPrompt(input), {
+    response: `Here is a practical starting point: ${input.message}`,
+    suggestedActions: ["Clarify the desired outcome", "Collect any client-specific context", "Turn the result into a reusable workflow"],
+    sourceReferences: input.knowledgeSource ? [input.knowledgeSource] : []
+  });
 }
 
 export async function generateBlog(input: BlogInput): Promise<BlogOutput> {
-  if (!hasWorkersAIConfig()) {
-    return {
-      seoTitle: `${input.topic} for ${input.clientName}`,
-      metaTitle: `${input.topic} | ${input.clientName}`,
-      metaDescription: `A ${input.tone || "professional"} guide to ${input.topic}, optimized for ${input.targetKeyword}.`,
-      blogOutline: ["Introduction", "Core problem", "Recommended approach", "Implementation checklist", "Conclusion"],
-      fullBlogDraft: `Draft placeholder for ${input.clientName}: ${input.topic}. Target keyword: ${input.targetKeyword}.`,
-      faqs: [
-        { question: `Why does ${input.topic} matter?`, answer: "It helps the audience understand the business value and next step." },
-        { question: "How should this be implemented?", answer: "Start with a clear strategy, then refine with performance data." }
-      ],
-      schemaFriendlyStructure: ["Article", "FAQPage", "BreadcrumbList"]
-    };
-  }
-
-  return generateStructuredOutput<BlogOutput>(blogPrompt(input));
+  return generateWithFallback<BlogOutput>(blogPrompt(input), {
+    seoTitle: `${input.topic} for ${input.clientName}`,
+    metaTitle: `${input.topic} | ${input.clientName}`,
+    metaDescription: `A ${input.tone || "professional"} guide to ${input.topic}, optimized for ${input.targetKeyword}.`,
+    slug: input.topic.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+    blogOutline: ["Introduction", "Core problem", "Recommended approach", "Implementation checklist", "Conclusion"],
+    fullArticle: `Draft placeholder for ${input.clientName}: ${input.topic}. Target keyword: ${input.targetKeyword}.`,
+    fullBlogDraft: `Draft placeholder for ${input.clientName}: ${input.topic}. Target keyword: ${input.targetKeyword}.`,
+    faqs: [
+      { question: `Why does ${input.topic} matter?`, answer: "It helps the audience understand the business value and next step." },
+      { question: "How should this be implemented?", answer: "Start with a clear strategy, then refine with performance data." }
+    ],
+    internalLinkingSuggestions: ["Link to the client services page", "Link to a related case study", "Link to the contact page"],
+    schemaFriendlyStructure: ["Article", "FAQPage", "BreadcrumbList"]
+  });
 }
 
 export async function generatePresentation(input: PresentationInput): Promise<PresentationOutput> {
   const count = Math.max(1, Number.parseInt(input.numberOfSlides, 10) || 5);
 
-  if (!hasWorkersAIConfig()) {
-    const slideTitles = Array.from({ length: count }, (_, index) => `Slide ${index + 1}: ${index === 0 ? input.topic : "Key recommendation"}`);
-    return {
-      slideTitles,
-      slideWiseContent: slideTitles.map((title) => ({
-        title,
-        content: ["Core message", "Supporting point", "Recommended action"]
-      })),
-      speakerNotes: slideTitles.map((title) => `Presenter note for ${title}.`),
-      suggestedVisuals: ["Client context visual", "Process diagram", "Performance chart"],
-      googleSlidesDraftPlaceholder: "Google Slides creation placeholder. Configure Slides API scopes before enabling."
-    };
-  }
+  const slideTitles = Array.from({ length: count }, (_, index) => `Slide ${index + 1}: ${index === 0 ? input.topic : "Key recommendation"}`);
 
-  return generateStructuredOutput<PresentationOutput>(presentationPrompt(input));
+  return generateWithFallback<PresentationOutput>(presentationPrompt(input), {
+    slideTitles,
+    slideWiseContent: slideTitles.map((title) => ({
+      title,
+      content: ["Core message", "Supporting point", "Recommended action"]
+    })),
+    speakerNotes: slideTitles.map((title) => `Presenter note for ${title}.`),
+    suggestedVisuals: ["Client context visual", "Process diagram", "Performance chart"],
+    ctaSlide: "Next steps and kickoff approval",
+    googleSlidesDraftPlaceholder: "Google Slides creation placeholder. Configure Slides API scopes before enabling."
+  });
 }
 
 export async function generateImageStudioBrief(input: ImageStudioInput): Promise<ImageStudioOutput> {
-  if (!hasWorkersAIConfig()) {
-    return {
-      generatedImagePlaceholder: "Image generation placeholder. Backend-only provider call will be added after model approval.",
-      promptUsed: `${input.format} for ${input.platform}. ${input.imageDescription}. Brand colors: ${input.brandColors}. Text: ${input.textOverlay}.`,
-      captionOptions: [
-        `A crisp campaign caption for ${input.platform}.`,
-        `A conversion-focused caption tied to ${input.campaignObjective}.`,
-        "A short brand-safe social caption."
-      ],
-      designerNotes: ["Keep text legible at mobile sizes", "Respect brand color contrast", "Export platform-specific dimensions"]
-    };
-  }
-
-  return generateStructuredOutput<ImageStudioOutput>(imageStudioPrompt(input));
+  return generateWithFallback<ImageStudioOutput>(imageStudioPrompt(input), {
+    generatedImagePlaceholder: "Image generation placeholder. Backend-only provider call will be added after model approval.",
+    imageUrl: null,
+    promptUsed: `${input.format} for ${input.platform}. ${input.imageDescription}. Brand colors: ${input.brandColors}. Text: ${input.textOverlay}.`,
+    captionOptions: [
+      `A crisp campaign caption for ${input.platform}.`,
+      `A conversion-focused caption tied to ${input.campaignObjective}.`,
+      "A short brand-safe social caption."
+    ],
+    designerNotes: ["Keep text legible at mobile sizes", "Respect brand color contrast", "Export platform-specific dimensions"]
+  });
 }
 
 export async function generateEmailDraft(input: EmailInput): Promise<EmailOutput> {
-  if (!hasWorkersAIConfig()) {
-    return {
-      emailSubject: input.purpose,
-      emailBody: `Hi,\n\nThanks for the context. ${input.keyPoints}\n\nBest,\nMarkitome Team`,
-      shortFollowUpVersion: `Following up on ${input.purpose}. Happy to align on the next step.`,
-      whatsappVersion: `Hi, quick update on ${input.purpose}: ${input.keyPoints}`
-    };
-  }
-
-  return generateStructuredOutput<EmailOutput>(emailPrompt(input));
+  return generateWithFallback<EmailOutput>(emailPrompt(input), {
+    emailSubject: input.purpose,
+    emailBody: `Hi,\n\nThanks for the context. ${input.keyPoints}\n\n${input.desiredCta}\n\nBest,\nMarkitome Team`,
+    shortFollowUpVersion: `Following up on ${input.purpose}. Happy to align on the next step.`,
+    whatsappVersion: `Hi, quick update on ${input.purpose}: ${input.keyPoints}`
+  });
 }
 
 export async function generateKnowledgeSummary(input: KnowledgeInput): Promise<KnowledgeOutput> {
-  if (!hasWorkersAIConfig()) {
-    return {
-      indexedDocument: input.title,
-      vectorIds: [],
-      searchPreview: input.content.split(".").map((item) => item.trim()).filter(Boolean).slice(0, 3),
-      auditTrail: "Placeholder ingestion completed without embedding because Cloudflare credentials are not configured."
-    };
-  }
-
-  return generateStructuredOutput<KnowledgeOutput>(knowledgePrompt(input));
+  return generateWithFallback<KnowledgeOutput>(knowledgePrompt(input), {
+    indexedDocument: input.title,
+    vectorIds: [],
+    searchPreview: input.content.split(".").map((item) => item.trim()).filter(Boolean).slice(0, 3),
+    auditTrail: "Placeholder ingestion completed without embedding because Cloudflare credentials are not configured."
+  });
 }
 
-function hasWorkersAIConfig() {
-  return Boolean(process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN);
+async function generateWithFallback<T>(prompt: string, fallback: T): Promise<T> {
+  try {
+    const output = await generateStructuredOutput<T>(prompt);
+    if (isPlaceholderResponse(output)) {
+      return fallback;
+    }
+
+    return output;
+  } catch (error) {
+    console.error("Markitome AI generation failed", {
+      message: error instanceof Error ? error.message : "Unknown error"
+    });
+    return fallback;
+  }
+}
+
+function isPlaceholderResponse(value: unknown) {
+  return Boolean(value && typeof value === "object" && "placeholder" in value);
+}
+
+async function callWorkersAIBinding(
+  model: string,
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+) {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const context = await getCloudflareContext({ async: true });
+    const ai = (context.env as Record<string, unknown>).AI as
+      | { run: (model: string, input: unknown) => Promise<unknown> }
+      | undefined;
+
+    if (!ai) {
+      return null;
+    }
+
+    const result = await ai.run(model, { messages });
+    const response =
+      typeof result === "string"
+        ? result
+        : result && typeof result === "object" && "response" in result
+          ? String((result as { response?: unknown }).response ?? "")
+          : JSON.stringify(result);
+
+    return { result: { response } };
+  } catch {
+    return null;
+  }
+}
+
+function extractJson(text: string) {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("```")) {
+    return trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  }
+
+  const firstObject = trimmed.indexOf("{");
+  const lastObject = trimmed.lastIndexOf("}");
+  if (firstObject >= 0 && lastObject > firstObject) {
+    return trimmed.slice(firstObject, lastObject + 1);
+  }
+
+  return trimmed;
 }

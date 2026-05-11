@@ -78,9 +78,15 @@ See:
 - [GCP OAuth setup notes](docs/gcp-oauth.md)
 - [Architecture notes](docs/architecture.md)
 - [Module notes](docs/modules.md)
+- [Launch checklist](docs/launch-checklist.md)
+- [Manual QA checklist](docs/manual-qa.md)
 
 ## First milestone status
 
 This foundation intentionally uses placeholders for external calls where credentials, API scopes, service accounts, and production policies are required.
 
 The Prisma migrations directory is present at `packages/db/prisma/migrations`; run `pnpm db:migrate` after configuring `DATABASE_URL` to create the first migration locally.
+
+## Current launch posture
+
+The app is deployable as a Cloudflare OpenNext Worker with Google OAuth, protected pages, Workers AI binding support, R2, Vectorize, and D1 resource bindings. For full database persistence and production admin workflows, deploy `apps/api` to Render with PostgreSQL and set `API_BASE_URL` on the web app.

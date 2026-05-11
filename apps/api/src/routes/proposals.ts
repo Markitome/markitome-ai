@@ -15,7 +15,9 @@ const proposalInputSchema = z.object({
   requiredServices: z.string().min(1),
   budgetRange: z.string().optional().default(""),
   timeline: z.string().optional().default(""),
-  proposalObjective: z.string().min(1)
+  proposalObjective: z.string().min(1),
+  notes: z.string().optional().default(""),
+  useKnowledgeBase: z.boolean().optional().default(false)
 });
 
 proposalRoutes.post("/generate", requireAuth, async (c) => {

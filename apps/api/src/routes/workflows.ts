@@ -26,14 +26,18 @@ const schemas = {
     topic: z.string().min(1),
     targetKeyword: z.string().optional().default(""),
     tone: z.string().optional().default("Professional"),
-    wordCount: z.string().optional().default("900")
+    wordCount: z.string().optional().default("900"),
+    audience: z.string().optional().default("Business decision makers"),
+    useKnowledgeBase: z.boolean().optional().default(false)
   }),
   presentation: z.object({
     clientName: z.string().min(1),
     topic: z.string().min(1),
     objective: z.string().min(1),
     audience: z.string().optional().default("Stakeholders"),
-    numberOfSlides: z.string().optional().default("8")
+    numberOfSlides: z.string().optional().default("8"),
+    tone: z.string().optional().default("Professional"),
+    useKnowledgeBase: z.boolean().optional().default(false)
   }),
   image: z.object({
     platform: z.string().min(1),
@@ -41,13 +45,16 @@ const schemas = {
     brandColors: z.string().optional().default(""),
     campaignObjective: z.string().min(1),
     imageDescription: z.string().min(1),
-    textOverlay: z.string().optional().default("")
+    textOverlay: z.string().optional().default(""),
+    styleDirection: z.string().optional().default("Clean corporate visual"),
+    clientName: z.string().optional().default("")
   }),
   email: z.object({
     recipientContext: z.string().min(1),
     purpose: z.string().min(1),
     tone: z.string().optional().default("Professional"),
-    keyPoints: z.string().min(1)
+    keyPoints: z.string().min(1),
+    desiredCta: z.string().optional().default("")
   }),
   knowledge: z.object({
     title: z.string().min(1),

@@ -10,11 +10,14 @@ export type ProposalInput = {
   budgetRange: string;
   timeline: string;
   proposalObjective: string;
+  notes: string;
+  useKnowledgeBase?: boolean;
 };
 
 export type ProposalOutput = {
   proposalTitle: string;
   executiveSummary: string;
+  clientUnderstanding: string;
   scopeOfServices: string[];
   deliverables: string[];
   timeline: string;
@@ -42,15 +45,20 @@ export type BlogInput = {
   targetKeyword: string;
   tone: string;
   wordCount: string;
+  audience: string;
+  useKnowledgeBase?: boolean;
 };
 
 export type BlogOutput = {
   seoTitle: string;
   metaTitle: string;
   metaDescription: string;
+  slug: string;
   blogOutline: string[];
+  fullArticle: string;
   fullBlogDraft: string;
   faqs: Array<{ question: string; answer: string }>;
+  internalLinkingSuggestions: string[];
   schemaFriendlyStructure: string[];
 };
 
@@ -60,6 +68,8 @@ export type PresentationInput = {
   objective: string;
   audience: string;
   numberOfSlides: string;
+  tone: string;
+  useKnowledgeBase?: boolean;
 };
 
 export type PresentationOutput = {
@@ -67,6 +77,7 @@ export type PresentationOutput = {
   slideWiseContent: Array<{ title: string; content: string[] }>;
   speakerNotes: string[];
   suggestedVisuals: string[];
+  ctaSlide: string;
   googleSlidesDraftPlaceholder: string;
 };
 
@@ -77,10 +88,13 @@ export type ImageStudioInput = {
   campaignObjective: string;
   imageDescription: string;
   textOverlay: string;
+  styleDirection: string;
+  clientName: string;
 };
 
 export type ImageStudioOutput = {
   generatedImagePlaceholder: string;
+  imageUrl?: string | null;
   promptUsed: string;
   captionOptions: string[];
   designerNotes: string[];
@@ -91,6 +105,7 @@ export type EmailInput = {
   purpose: string;
   tone: string;
   keyPoints: string;
+  desiredCta: string;
 };
 
 export type EmailOutput = {

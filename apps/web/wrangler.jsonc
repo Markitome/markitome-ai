@@ -11,11 +11,37 @@
   "observability": {
     "enabled": true
   },
+  "ai": {
+    "binding": "AI"
+  },
+  "r2_buckets": [
+    {
+      "binding": "MARKITOME_R2",
+      "bucket_name": "markitome-ai-files"
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "markitome-ai-index"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "MARKITOME_DB",
+      "database_name": "markitome-ai-db",
+      "database_id": "8c8b8177-3116-4ca8-99e4-9a990575a94d"
+    }
+  ],
   "vars": {
     "NEXTAUTH_URL": "https://app.markitome.ai",
     "APP_BASE_URL": "https://app.markitome.ai",
     "INITIAL_ADMIN_EMAIL": "vivek@markitome.com",
-    "APPROVED_EMAIL_ALLOWLIST": ""
+    "APPROVED_EMAIL_ALLOWLIST": "",
+    "CLOUDFLARE_AI_BINDING_ENABLED": "true",
+    "CLOUDFLARE_TEXT_MODEL": "@cf/google/gemma-4-26b-a4b-it",
+    "CLOUDFLARE_VECTORIZE_INDEX": "markitome-ai-index",
+    "CLOUDFLARE_R2_BUCKET": "markitome-ai-files"
   },
   "routes": [
     {
