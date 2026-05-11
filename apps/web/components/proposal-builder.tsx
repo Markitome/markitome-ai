@@ -37,8 +37,9 @@ export function ProposalBuilder() {
   const [form, setForm] = useState(initialForm);
   const [output, setOutput] = useState<ProposalOutput | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
 
   async function generateProposal() {
     setIsGenerating(true);
@@ -65,19 +66,36 @@ export function ProposalBuilder() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
-  async function saveToDrive() {
-    setSaveMessage(null);
-    const response = await fetch("/api/google/drive/save-generated-file", {
+  async function downloadPdf() {
+    if (!output) return;
+
+    setIsDownloading(true);
+    setDownloadMessage(null);
+
+    const response = await fetch("/api/proposals/pdf", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: output?.proposalTitle ?? `${form.clientName || "Client"} Proposal`,
-        type: "proposal",
-        output
-      })
+      body: JSON.stringify({ output })
     });
-    const payload = await response.json();
-    setSaveMessage(response.ok ? payload.data.TODO ?? "Google Drive placeholder completed." : payload.error ?? "Save failed.");
+
+    setIsDownloading(false);
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      setDownloadMessage(payload.error ?? "PDF download failed.");
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${output.fileName || "Markitome-Proposal"}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setDownloadMessage("PDF downloaded.");
   }
 
   return (
@@ -149,7 +167,7 @@ export function ProposalBuilder() {
             Use Knowledge Base
           </label>
           {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
-          {saveMessage ? <p className="text-sm font-medium text-leaf">{saveMessage}</p> : null}
+          {downloadMessage ? <p className="text-sm font-medium text-leaf">{downloadMessage}</p> : null}
           <div className="flex flex-wrap gap-3">
             <Button onClick={generateProposal} disabled={isGenerating}>
               {isGenerating ? "Generating..." : "Generate Proposal"}
@@ -157,10 +175,10 @@ export function ProposalBuilder() {
             <button
               className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
               type="button"
-              onClick={saveToDrive}
-              disabled={!output}
+              onClick={downloadPdf}
+              disabled={!output || isDownloading}
             >
-              Save to Google Drive
+              {isDownloading ? "Preparing PDF..." : "Download PDF"}
             </button>
           </div>
         </div>
