@@ -21,9 +21,7 @@ const proposalInputSchema = z.object({
   proposalObjective: z.string().min(1),
   notes: z.string().optional().default(""),
   discountPercent: z.string().optional().default("0"),
-  departmentCode: z.string().optional().default("MKT"),
-  clientCode: z.string().optional().default("CL"),
-  deliveryDate: z.string().optional().default(""),
+  proposalNumber: z.string().optional().default("MAPRO"),
   iteration: z.string().optional().default("001"),
   useKnowledgeBase: z.boolean().optional().default(false)
 });

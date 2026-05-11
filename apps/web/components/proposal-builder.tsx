@@ -26,9 +26,7 @@ const initialForm = {
   proposalObjective: "",
   notes: "",
   discountPercent: "0",
-  departmentCode: "MKT",
-  clientCode: "",
-  deliveryDate: "",
+  proposalNumber: "MAPRO",
   iteration: "001",
   useKnowledgeBase: false
 };
@@ -137,17 +135,11 @@ export function ProposalBuilder() {
             <Field label="Discount (%)">
               <TextInput value={form.discountPercent} onChange={(event) => updateField("discountPercent", event.target.value)} />
             </Field>
-            <Field label="Department code">
-              <TextInput value={form.departmentCode} onChange={(event) => updateField("departmentCode", event.target.value)} />
+            <Field label="Proposal number">
+              <TextInput value={form.proposalNumber} onChange={(event) => updateField("proposalNumber", event.target.value)} />
             </Field>
           </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Client code">
-              <TextInput value={form.clientCode} onChange={(event) => updateField("clientCode", event.target.value)} />
-            </Field>
-            <Field label="Delivery date (MMDD)">
-              <TextInput value={form.deliveryDate} onChange={(event) => updateField("deliveryDate", event.target.value)} />
-            </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Iteration">
               <TextInput value={form.iteration} onChange={(event) => updateField("iteration", event.target.value)} />
             </Field>

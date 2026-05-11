@@ -122,18 +122,12 @@ export function buildProposalPricing(requiredServices: string, discountPercentVa
 }
 
 export function generateProposalFileName(input: {
-  departmentCode?: string;
-  clientCode?: string;
-  deliveryDate?: string;
+  proposalNumber?: string;
   iteration?: string;
-  date?: Date;
 }) {
-  const year = String((input.date ?? new Date()).getFullYear()).slice(-2);
-  const department = sanitizeCode(input.departmentCode, "MKT", 3);
-  const client = sanitizeCode(input.clientCode, "CL", 2);
-  const delivery = sanitizeDeliveryDate(input.deliveryDate, input.date ?? new Date());
+  const proposalNumber = sanitizeProposalNumber(input.proposalNumber, "MAPRO");
   const iteration = sanitizeNumber(input.iteration, "001", 3);
-  return `MA${department}${year}${client}${delivery}${iteration}`;
+  return `${proposalNumber}${iteration}`;
 }
 
 function matchServices(requiredServices: string): ProposalPricingRow[] {
@@ -180,25 +174,14 @@ function formatRupees(value: number) {
   return `₹${new Intl.NumberFormat("en-IN").format(value)}`;
 }
 
-function sanitizeCode(value: string | undefined, fallback: string, length: number) {
+function sanitizeProposalNumber(value: string | undefined, fallback: string) {
   const cleaned = String(value || fallback)
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "");
-  return (cleaned || fallback).slice(0, length).padEnd(length, "X");
+  return cleaned || fallback;
 }
 
 function sanitizeNumber(value: string | undefined, fallback: string, length: number) {
   const cleaned = String(value || fallback).replace(/\D/g, "");
   return (cleaned || fallback).slice(-length).padStart(length, "0");
-}
-
-function sanitizeDeliveryDate(value: string | undefined, fallback: Date) {
-  if (value) {
-    const compact = value.replace(/\D/g, "");
-    if (compact.length >= 4) return compact.slice(-4);
-  }
-
-  const month = String(fallback.getMonth() + 1).padStart(2, "0");
-  const day = String(fallback.getDate()).padStart(2, "0");
-  return `${month}${day}`;
 }

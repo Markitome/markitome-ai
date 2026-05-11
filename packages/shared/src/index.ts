@@ -15,9 +15,7 @@ export type ProposalInput = {
   proposalObjective: string;
   notes: string;
   discountPercent: string;
-  departmentCode: string;
-  clientCode: string;
-  deliveryDate: string;
+  proposalNumber: string;
   iteration: string;
   useKnowledgeBase?: boolean;
 };
