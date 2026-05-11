@@ -14,36 +14,78 @@ type FieldConfig = {
 export function WorkflowForm({
   workflow,
   fields,
-  initialValues
+  initialValues,
+  saveLabel = "Save to Google Drive"
 }: {
   workflow: string;
   fields: FieldConfig[];
   initialValues: Record<string, string | boolean>;
+  saveLabel?: string;
 }) {
   const [form, setForm] = useState(initialValues);
   const [output, setOutput] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   async function generate() {
     setIsGenerating(true);
     setError(null);
+    setSaveMessage(null);
+    setCopyMessage(null);
 
-    const response = await fetch(`/api/workflows/${workflow}/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form)
-    });
-    const payload = await response.json();
+    try {
+      const response = await fetch(`/api/workflows/${workflow}/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form)
+      });
+      const payload = await response.json();
 
-    setIsGenerating(false);
+      if (!response.ok) {
+        setError(payload.error ?? "Generation failed.");
+        return;
+      }
 
-    if (!response.ok) {
-      setError(payload.error ?? "Generation failed.");
-      return;
+      setOutput(payload.data);
+    } catch {
+      setError("Generation failed. Please try again.");
+    } finally {
+      setIsGenerating(false);
     }
+  }
 
-    setOutput(payload.data);
+  async function copyOutput() {
+    if (!output) return;
+    await navigator.clipboard.writeText(formatOutput(output));
+    setCopyMessage("Copied output.");
+  }
+
+  async function saveToDrive() {
+    if (!output) return;
+    setIsSaving(true);
+    setSaveMessage(null);
+
+    try {
+      const response = await fetch("/api/google/drive/save-generated-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: inferTitle(workflow, form, output),
+          type: workflow,
+          input: form,
+          output
+        })
+      });
+      const payload = await response.json();
+      setSaveMessage(response.ok ? payload.data.TODO ?? "Google Drive placeholder completed." : payload.error ?? "Save failed.");
+    } catch {
+      setSaveMessage("Save failed. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   function setField(name: string, value: string | boolean) {
@@ -83,6 +125,8 @@ export function WorkflowForm({
             )
           ))}
           {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
+          {copyMessage ? <p className="text-sm font-medium text-leaf">{copyMessage}</p> : null}
+          {saveMessage ? <p className="text-sm font-medium text-leaf">{saveMessage}</p> : null}
           <Button onClick={generate} disabled={isGenerating}>
             {isGenerating ? "Generating..." : "Generate"}
           </Button>
@@ -90,10 +134,35 @@ export function WorkflowForm({
       </section>
       <section className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
         {output ? (
-          <JsonOutput value={output} />
+          <div className="grid gap-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 pb-4">
+              <div>
+                <h2 className="font-semibold text-ink">Generated Output</h2>
+                <p className="mt-1 text-sm text-neutral-500">Review, copy, or save this draft through the protected backend.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+                  type="button"
+                  onClick={copyOutput}
+                >
+                  Copy
+                </button>
+                <button
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  type="button"
+                  onClick={saveToDrive}
+                  disabled={isSaving}
+                >
+                  {isSaving ? "Saving..." : saveLabel}
+                </button>
+              </div>
+            </div>
+            <JsonOutput value={output} />
+          </div>
         ) : (
           <div className="flex min-h-96 items-center justify-center rounded-md border border-dashed border-neutral-300 bg-neutral-50 px-6 text-center text-sm text-neutral-500">
-            Generated output will appear here.
+            Complete the form and generate a draft. Output, copy, and save actions will appear here.
           </div>
         )}
       </section>
@@ -137,4 +206,26 @@ function humanize(value: string) {
     .replace(/([A-Z])/g, " $1")
     .replace(/^./, (letter) => letter.toUpperCase())
     .trim();
+}
+
+function formatOutput(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
+function inferTitle(workflow: string, form: Record<string, string | boolean>, output: unknown) {
+  const record = output && typeof output === "object" ? (output as Record<string, unknown>) : {};
+  const explicitTitle =
+    record.seoTitle ??
+    record.metaTitle ??
+    record.emailSubject ??
+    record.presentationTitle ??
+    record.indexedDocument ??
+    record.promptUsed;
+
+  if (typeof explicitTitle === "string" && explicitTitle.trim()) return explicitTitle;
+  if (typeof form.clientName === "string" && form.clientName.trim()) return `${form.clientName} ${humanize(workflow)} Draft`;
+  if (typeof form.topic === "string" && form.topic.trim()) return form.topic;
+  if (typeof form.title === "string" && form.title.trim()) return form.title;
+  return `${humanize(workflow)} Draft`;
 }

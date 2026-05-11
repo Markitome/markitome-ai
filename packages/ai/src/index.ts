@@ -80,7 +80,7 @@ export async function callWorkersAI<T = unknown>(request: WorkersAIRequest): Pro
     throw new Error(`Workers AI request failed with status ${response.status}`);
   }
 
-  return (await response.json()) as T;
+  return normalizeWorkersAIResponse(await response.json()) as T;
 }
 
 export async function generateText(prompt: string) {
@@ -254,18 +254,39 @@ async function callWorkersAIBinding(
       return null;
     }
 
-    const result = await ai.run(model, { messages });
-    const response =
-      typeof result === "string"
-        ? result
-        : result && typeof result === "object" && "response" in result
-          ? String((result as { response?: unknown }).response ?? "")
-          : JSON.stringify(result);
-
-    return { result: { response } };
+    return normalizeWorkersAIResponse(await ai.run(model, { messages }));
   } catch {
     return null;
   }
+}
+
+function normalizeWorkersAIResponse(result: unknown) {
+  const text = extractWorkersAIText(result);
+  return { result: { response: text } };
+}
+
+function extractWorkersAIText(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (!result || typeof result !== "object") return "";
+
+  const record = result as Record<string, unknown>;
+  if (typeof record.response === "string") return record.response;
+
+  const nestedResult = record.result;
+  if (nestedResult && nestedResult !== result) {
+    const nestedText = extractWorkersAIText(nestedResult);
+    if (nestedText) return nestedText;
+  }
+
+  const choices = record.choices;
+  if (Array.isArray(choices) && choices.length > 0) {
+    const first = choices[0] as Record<string, unknown>;
+    if (typeof first.text === "string") return first.text;
+    const message = first.message as Record<string, unknown> | undefined;
+    if (message && typeof message.content === "string") return message.content;
+  }
+
+  return JSON.stringify(result);
 }
 
 function extractJson(text: string) {
