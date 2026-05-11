@@ -29,7 +29,8 @@ export async function POST(request: Request) {
 }
 
 function buildProposalPdf(output: Record<string, unknown>) {
-  const writer = new PdfWriter();
+  const fileName = text(output.fileName, "File Name");
+  const writer = new PdfWriter(fileName);
 
   writer.addPage((page) => {
     page.heading("Markitome Proposal");
@@ -96,8 +97,10 @@ function buildProposalPdf(output: Record<string, unknown>) {
 class PdfWriter {
   private pages: string[] = [];
 
+  constructor(private fileName: string) {}
+
   addPage(draw: (page: PdfPage) => void) {
-    const page = new PdfPage();
+    const page = new PdfPage(this.pages.length + 1, this.fileName);
     draw(page);
     this.pages.push(page.content());
   }
@@ -109,10 +112,11 @@ class PdfWriter {
 
     const contentObjectStart = 3 + this.pages.length;
     this.pages.forEach((_, index) => {
-      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${contentObjectStart + this.pages.length} 0 R /F2 ${contentObjectStart + this.pages.length + 1} 0 R >> >> /Contents ${contentObjectStart + index} 0 R >>`);
+      objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.92 842.88] /Resources << /Font << /F1 ${contentObjectStart + this.pages.length} 0 R /F2 ${contentObjectStart + this.pages.length + 1} 0 R >> >> /Contents ${contentObjectStart + index} 0 R >>`);
     });
     this.pages.forEach((content) => {
-      objects.push(`<< /Length ${byteLength(content)} >>\nstream\n${content}\nendstream`);
+      const renderedContent = content.replaceAll("__TOTAL_PAGES__", String(this.pages.length));
+      objects.push(`<< /Length ${byteLength(renderedContent)} >>\nstream\n${renderedContent}\nendstream`);
     });
     objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
     objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
@@ -136,7 +140,11 @@ class PdfWriter {
 
 class PdfPage {
   private commands: string[] = [];
-  private y = 786;
+  private y = 726;
+
+  constructor(private pageNumber: number, private fileName: string) {
+    this.drawLetterhead();
+  }
 
   content() {
     return this.commands.join("\n");
@@ -213,12 +221,26 @@ class PdfPage {
 
   private ensureSpace(height: number) {
     if (this.y - height < 50) {
-      this.y = 786;
+      this.y = 726;
     }
   }
 
   private text(x: number, y: number, value: string, size: number, bold: boolean) {
     this.commands.push(`BT /${bold ? "F2" : "F1"} ${size} Tf ${x} ${y} Td (${escapePdfText(value)}) Tj ET`);
+  }
+
+  private drawLetterhead() {
+    this.commands.push("q 0.9608 0.9608 0.9608 rg 0 0 595.92 842.88 re f Q");
+    this.commands.push("q 1 1 1 rg 45 72 506 688 re f Q");
+    this.commands.push("q 0 0.5686 0.7804 RG 1.1 w 45 72 506 688 re S Q");
+    this.commands.push("q 0.9098 0.9176 0.9294 rg 0 0 220 220 re f Q");
+    this.commands.push("q 0.3137 0.3608 0.4353 rg 48 35 64 15 re f Q");
+    this.text(48, 790, "Mark", 18, true);
+    this.text(48, 770, "itome", 18, true);
+    this.text(432, 790, "Mark", 20, true);
+    this.text(432, 768, "itome", 20, true);
+    this.text(50, 38, this.fileName, 9, false);
+    this.text(498, 38, `${this.pageNumber} of __TOTAL_PAGES__`, 9, false);
   }
 
   private wrap(value: string, limit: number) {
