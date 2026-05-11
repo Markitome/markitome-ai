@@ -8,6 +8,8 @@ dist
 build
 coverage
 .turbo
+.open-next
+.wrangler
 
 # Environment files
 .env

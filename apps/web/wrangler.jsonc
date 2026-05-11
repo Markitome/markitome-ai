@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "markitome-ai-app",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-05-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "NEXTAUTH_URL": "https://app.markitome.ai",
+    "APP_BASE_URL": "https://app.markitome.ai",
+    "INITIAL_ADMIN_EMAIL": "vivek@markitome.com",
+    "APPROVED_EMAIL_ALLOWLIST": ""
+  },
+  "routes": [
+    {
+      "pattern": "app.markitome.ai",
+      "custom_domain": true
+    }
+  ]
+}

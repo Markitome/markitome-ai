@@ -1,5 +1,4 @@
 import { isMarkitomeEmail } from "@markitome/auth";
-import { prisma } from "@markitome/db";
 import type { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 
@@ -8,11 +7,12 @@ async function isAllowlisted(email: string) {
     return true;
   }
 
-  const allowlistRecord = await prisma.approvedEmailAllowlist
-    .findUnique({ where: { email: email.toLowerCase() } })
-    .catch(() => null);
-
-  return Boolean(allowlistRecord);
+  const allowlist = process.env.APPROVED_EMAIL_ALLOWLIST ?? "";
+  return allowlist
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(email.toLowerCase());
 }
 
 export const authOptions: NextAuthOptions = {
@@ -37,59 +37,14 @@ export const authOptions: NextAuthOptions = {
         return false;
       }
 
-      const picture = profile && "picture" in profile ? String(profile.picture ?? "") : undefined;
-
-      const initialAdminEmail = process.env.INITIAL_ADMIN_EMAIL?.toLowerCase();
-      const defaultRoleName = email === initialAdminEmail ? "ADMIN" : "TEAM_MEMBER";
-
-      const role = await prisma.role.upsert({
-        where: { name: defaultRoleName },
-        update: {},
-        create: { name: defaultRoleName, description: `${defaultRoleName} bootstrap role` }
-      });
-
-      const user = await prisma.user.upsert({
-        where: { email },
-        update: {
-          name: profile?.name,
-          image: picture,
-          googleSubject: profile?.sub
-        },
-        create: {
-          email,
-          name: profile?.name,
-          image: picture,
-          googleSubject: profile?.sub,
-          roles: {
-            create: { roleId: role.id }
-          }
-        },
-        include: { roles: true }
-      });
-
-      if (user.roles.length === 0) {
-        await prisma.userRole.create({
-          data: { userId: user.id, roleId: role.id }
-        });
-      }
-
-      await prisma.auditLog
-        .create({
-          data: { actorUserId: user.id, action: "LOGIN", resource: "auth" }
-        })
-        .catch(() => undefined);
-
       return true;
     },
     async jwt({ token }) {
       if (token.email) {
-        const user = await prisma.user.findUnique({
-          where: { email: token.email.toLowerCase() },
-          include: { roles: { include: { role: true } } }
-        }).catch(() => null);
-
-        token.sub = user?.id ?? token.sub;
-        token.roles = user?.roles.map((userRole) => userRole.role.name) ?? ["TEAM_MEMBER"];
+        const email = token.email.toLowerCase();
+        const initialAdminEmail = process.env.INITIAL_ADMIN_EMAIL?.toLowerCase();
+        token.sub = token.sub ?? email;
+        token.roles = email === initialAdminEmail ? ["ADMIN"] : ["TEAM_MEMBER"];
       }
 
       return token;

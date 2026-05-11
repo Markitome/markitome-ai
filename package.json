@@ -13,6 +13,11 @@
     "db:studio": "pnpm --filter @markitome/db prisma:studio"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "typescript": "5.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "typescript": "5.7.2"
+    }
   }
 }
