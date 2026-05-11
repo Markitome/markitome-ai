@@ -1,0 +1,14 @@
+name = "markitome-ai-worker"
+main = "src/index.ts"
+compatibility_date = "2026-05-11"
+
+# Configure real values through Cloudflare dashboard secrets and bindings.
+# Do not commit production wrangler.toml if it contains account-specific data.
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "markitome-ai-index"
+
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "markitome-ai-files"

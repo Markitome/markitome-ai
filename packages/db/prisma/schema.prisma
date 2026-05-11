@@ -1,0 +1,305 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  ADMIN
+  MANAGER
+  TEAM_MEMBER
+  INTERN
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  PENDING
+}
+
+enum MessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum WorkflowStatus {
+  DRAFT
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum GeneratedFileType {
+  PROPOSAL
+  BLOG
+  PRESENTATION
+  IMAGE
+  EMAIL_DRAFT
+  OTHER
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CREATE
+  UPDATE
+  DELETE
+  GENERATE_AI
+  SAVE_TO_DRIVE
+  ROLE_CHANGE
+  ALLOWLIST_CHANGE
+}
+
+model User {
+  id              String        @id @default(cuid())
+  email           String        @unique
+  name            String?
+  image           String?
+  googleSubject   String?       @unique
+  status          UserStatus    @default(ACTIVE)
+  organizationId  String?
+  organization    Organization? @relation(fields: [organizationId], references: [id])
+  roles           UserRole[]
+  conversations   Conversation[]
+  aiUsageLogs     AiUsageLog[]
+  workflows       Workflow[]
+  generatedFiles  GeneratedFile[]
+  auditLogs       AuditLog[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("users")
+}
+
+model Role {
+  id          String     @id @default(cuid())
+  name        RoleName   @unique
+  description String?
+  users       UserRole[]
+  createdAt   DateTime   @default(now())
+
+  @@map("roles")
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model ApprovedEmailAllowlist {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  note      String?
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("approved_email_allowlist")
+}
+
+model Organization {
+  id            String         @id @default(cuid())
+  name          String
+  domain        String?        @unique
+  users         User[]
+  clientRecords ClientRecord[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@map("organizations")
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  title     String?
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  messages  Message[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           MessageRole
+  content        String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  @@map("messages")
+}
+
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  provider     String
+  model        String
+  route        String?
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  totalTokens  Int      @default(0)
+  costCents    Int      @default(0)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@map("ai_usage_logs")
+}
+
+model Workflow {
+  id        String         @id @default(cuid())
+  type      String
+  status    WorkflowStatus @default(DRAFT)
+  input     Json
+  output    Json?
+  userId    String?
+  user      User?          @relation(fields: [userId], references: [id])
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@map("workflows")
+}
+
+model GeneratedFile {
+  id               String            @id @default(cuid())
+  type             GeneratedFileType
+  title            String
+  content          Json?
+  r2Key            String?
+  driveFileId      String?
+  userId           String?
+  user             User?             @relation(fields: [userId], references: [id])
+  googleDriveFiles GoogleDriveFile[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@map("generated_files")
+}
+
+model GoogleDriveFile {
+  id              String         @id @default(cuid())
+  driveFileId     String         @unique
+  name            String
+  mimeType        String?
+  webViewLink     String?
+  generatedFileId String?
+  generatedFile   GeneratedFile? @relation(fields: [generatedFileId], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("google_drive_files")
+}
+
+model ClientRecord {
+  id              String               @id @default(cuid())
+  name            String
+  website         String?
+  industry        String?
+  organizationId  String?
+  organization    Organization?        @relation(fields: [organizationId], references: [id])
+  proposals       ProposalRecord[]
+  blogs           BlogRecord[]
+  presentations   PresentationRecord[]
+  imageGenerations ImageGenerationRecord[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@map("client_records")
+}
+
+model ProposalRecord {
+  id          String        @id @default(cuid())
+  clientId    String?
+  client      ClientRecord? @relation(fields: [clientId], references: [id])
+  title       String
+  input       Json
+  output      Json?
+  driveFileId String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("proposal_records")
+}
+
+model BlogRecord {
+  id        String        @id @default(cuid())
+  clientId  String?
+  client    ClientRecord? @relation(fields: [clientId], references: [id])
+  title     String
+  input     Json
+  output    Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("blog_records")
+}
+
+model PresentationRecord {
+  id          String        @id @default(cuid())
+  clientId    String?
+  client      ClientRecord? @relation(fields: [clientId], references: [id])
+  title       String
+  input       Json
+  output      Json?
+  slidesFileId String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("presentation_records")
+}
+
+model ImageGenerationRecord {
+  id        String        @id @default(cuid())
+  clientId  String?
+  client    ClientRecord? @relation(fields: [clientId], references: [id])
+  prompt    String
+  outputUrl String?
+  metadata  Json?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@map("image_generation_records")
+}
+
+model KnowledgeDocument {
+  id          String   @id @default(cuid())
+  title       String
+  source      String?
+  r2Key       String?
+  vectorIds   String[]
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("knowledge_documents")
+}
+
+model AuditLog {
+  id          String      @id @default(cuid())
+  actorUserId String?
+  actor       User?       @relation(fields: [actorUserId], references: [id])
+  action      AuditAction
+  resource    String?
+  resourceId  String?
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@map("audit_logs")
+}

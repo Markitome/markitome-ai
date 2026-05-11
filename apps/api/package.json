@@ -1,0 +1,28 @@
+{
+  "name": "@markitome/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "@markitome/auth": "workspace:*",
+    "@markitome/db": "workspace:*",
+    "@markitome/shared": "workspace:*",
+    "@markitome/workflows": "workspace:*",
+    "hono": "^4.6.15",
+    "jose": "^5.9.6",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

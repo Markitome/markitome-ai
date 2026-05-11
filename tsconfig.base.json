@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@markitome/auth": ["packages/auth/src/index.ts"],
+      "@markitome/ai": ["packages/ai/src/index.ts"],
+      "@markitome/db": ["packages/db/src/index.ts"],
+      "@markitome/google": ["packages/google/src/index.ts"],
+      "@markitome/prompts": ["packages/prompts/src/index.ts"],
+      "@markitome/shared": ["packages/shared/src/index.ts"],
+      "@markitome/storage": ["packages/storage/src/index.ts"],
+      "@markitome/ui": ["packages/ui/src/index.ts"],
+      "@markitome/workflows": ["packages/workflows/src/index.ts"]
+    }
+  }
+}
