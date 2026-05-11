@@ -7,14 +7,36 @@ import type {
   PresentationInput,
   ProposalInput
 } from "@markitome/shared";
+import {
+  buildProposalPricing,
+  generateProposalFileName,
+  proposalAcceptanceText,
+  proposalContactInfo,
+  proposalGstNote,
+  proposalOnActualsNote,
+  proposalTermsAndConditions,
+  servicePricingIndia
+} from "@markitome/shared";
 
 export function proposalPrompt(input: ProposalInput) {
+  const pricing = buildProposalPricing(input.requiredServices, input.discountPercent);
+  const fileName = generateProposalFileName(input);
+
   return [
     "You are Markitome AI, an internal marketing strategy assistant.",
-    "Create a professional client proposal.",
+    "Create a professional client proposal using Markitome's proposal template logic.",
+    "The termsAndConditions must be copied exactly from the Markitome proposal template provided below. Do not rewrite, reorder, summarize, or add to them.",
+    "The pricingTable and pricingSummary must use the provided India pricing and discount calculation. Do not invent pricing.",
     "Return only one JSON object. Use these exact camelCase keys and value types:",
     JSON.stringify(
       {
+        proposalNumber: fileName,
+        fileName,
+        clientName: input.clientName,
+        clientUrl: input.clientWebsite,
+        clientEmail: input.clientEmail,
+        clientPhone: input.clientPhone,
+        clientAddress: input.clientAddress,
         proposalTitle: "string",
         executiveSummary: "string",
         clientUnderstanding: "string",
@@ -22,20 +44,36 @@ export function proposalPrompt(input: ProposalInput) {
         deliverables: ["string"],
         timeline: "string",
         commercialStructure: "string",
-        termsAndConditions: ["string"],
+        pricingTable: pricing.pricingTable,
+        pricingSummary: pricing.pricingSummary,
+        taxAndActualsNotes: [proposalGstNote, proposalOnActualsNote],
+        termsAndConditions: proposalTermsAndConditions,
+        acceptance: proposalAcceptanceText,
+        contactInformation: proposalContactInfo,
         nextSteps: ["string"]
       },
       null,
       2
     ),
+    `Proposal number / file name: ${fileName}`,
     `Client name: ${input.clientName}`,
     `Client website: ${input.clientWebsite}`,
+    `Client email: ${input.clientEmail}`,
+    `Client phone: ${input.clientPhone}`,
+    `Client address: ${input.clientAddress}`,
     `Industry: ${input.industry}`,
     `Required services: ${input.requiredServices}`,
     `Budget range: ${input.budgetRange}`,
     `Timeline: ${input.timeline}`,
     `Objective: ${input.proposalObjective}`,
     `Notes: ${input.notes}`,
+    `Discount percent: ${pricing.pricingSummary.discountPercent}`,
+    `India pricing catalog: ${JSON.stringify(servicePricingIndia)}`,
+    `Matched pricing table: ${JSON.stringify(pricing.pricingTable)}`,
+    `Consolidated pricing after discount: ${JSON.stringify(pricing.pricingSummary)}`,
+    `Exact terms and conditions: ${JSON.stringify(proposalTermsAndConditions)}`,
+    `Acceptance text: ${JSON.stringify(proposalAcceptanceText)}`,
+    `Contact information: ${JSON.stringify(proposalContactInfo)}`,
     `Use knowledge base: ${Boolean(input.useKnowledgeBase)}`,
     "Do not wrap the response in markdown. Do not add keys outside the schema."
   ].join("\n");

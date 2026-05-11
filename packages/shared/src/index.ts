@@ -5,16 +5,31 @@ export type AppRole = "ADMIN" | "MANAGER" | "TEAM_MEMBER" | "INTERN";
 export type ProposalInput = {
   clientName: string;
   clientWebsite: string;
+  clientEmail: string;
+  clientPhone: string;
+  clientAddress: string;
   industry: string;
   requiredServices: string;
   budgetRange: string;
   timeline: string;
   proposalObjective: string;
   notes: string;
+  discountPercent: string;
+  departmentCode: string;
+  clientCode: string;
+  deliveryDate: string;
+  iteration: string;
   useKnowledgeBase?: boolean;
 };
 
 export type ProposalOutput = {
+  proposalNumber: string;
+  fileName: string;
+  clientName: string;
+  clientUrl: string;
+  clientEmail: string;
+  clientPhone: string;
+  clientAddress: string;
   proposalTitle: string;
   executiveSummary: string;
   clientUnderstanding: string;
@@ -22,7 +37,12 @@ export type ProposalOutput = {
   deliverables: string[];
   timeline: string;
   commercialStructure: string;
+  pricingTable: import("./proposal-rules").ProposalPricingRow[];
+  pricingSummary: import("./proposal-rules").ProposalPricingSummary;
+  taxAndActualsNotes: string[];
   termsAndConditions: string[];
+  acceptance: string[];
+  contactInformation: typeof import("./proposal-rules").proposalContactInfo;
   nextSteps: string[];
 };
 
@@ -144,3 +164,14 @@ export type ApiResponse<T> = {
 };
 
 export { initMonitoring } from "./telemetry";
+export {
+  buildProposalPricing,
+  generateProposalFileName,
+  proposalAcceptanceText,
+  proposalContactInfo,
+  proposalGstNote,
+  proposalOnActualsNote,
+  proposalTermsAndConditions,
+  servicePricingIndia
+} from "./proposal-rules";
+export type { ProposalPricingRow, ProposalPricingSummary, ServicePricing } from "./proposal-rules";

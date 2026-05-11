@@ -23,6 +23,15 @@ import type {
   ProposalInput,
   ProposalOutput
 } from "@markitome/shared";
+import {
+  buildProposalPricing,
+  generateProposalFileName,
+  proposalAcceptanceText,
+  proposalContactInfo,
+  proposalGstNote,
+  proposalOnActualsNote,
+  proposalTermsAndConditions
+} from "@markitome/shared";
 
 export const DEFAULT_TEXT_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 
@@ -130,15 +139,30 @@ export async function searchVectorize(query: string) {
 }
 
 export async function generateProposal(input: ProposalInput): Promise<ProposalOutput> {
+  const fileName = generateProposalFileName(input);
+  const pricing = buildProposalPricing(input.requiredServices, input.discountPercent);
+
   return generateWithFallback<ProposalOutput>(proposalPrompt(input), {
+    proposalNumber: fileName,
+    fileName,
+    clientName: input.clientName,
+    clientUrl: input.clientWebsite,
+    clientEmail: input.clientEmail,
+    clientPhone: input.clientPhone,
+    clientAddress: input.clientAddress,
     proposalTitle: `${input.clientName} Growth Proposal`,
     executiveSummary: `A launch-ready proposal draft for ${input.clientName}, focused on ${input.proposalObjective}.`,
     clientUnderstanding: `${input.clientName} needs a practical, measurable marketing plan for ${input.industry || "its market"}.`,
     scopeOfServices: input.requiredServices.split(",").map((service) => service.trim()).filter(Boolean),
     deliverables: ["Discovery workshop", "Strategy roadmap", "Execution plan", "Performance reporting"],
     timeline: input.timeline,
-    commercialStructure: input.budgetRange,
-    termsAndConditions: ["Final scope subject to discovery.", "Commercials exclude third-party media and tool costs."],
+    commercialStructure: `Subtotal ${pricing.pricingSummary.subtotal}; discount ${pricing.pricingSummary.discountPercent}%; total after discount ${pricing.pricingSummary.totalAfterDiscount}.`,
+    pricingTable: pricing.pricingTable,
+    pricingSummary: pricing.pricingSummary,
+    taxAndActualsNotes: [proposalGstNote, proposalOnActualsNote],
+    termsAndConditions: proposalTermsAndConditions,
+    acceptance: proposalAcceptanceText,
+    contactInformation: proposalContactInfo,
     nextSteps: ["Confirm scope", "Approve commercials", "Schedule kickoff"]
   });
 }

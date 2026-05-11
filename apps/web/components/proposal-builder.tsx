@@ -1,18 +1,35 @@
 "use client";
 
 import { Button, Field, TextArea, TextInput } from "@markitome/ui";
-import type { ProposalOutput } from "@markitome/shared";
+import {
+  buildProposalPricing,
+  generateProposalFileName,
+  proposalAcceptanceText,
+  proposalContactInfo,
+  proposalGstNote,
+  proposalOnActualsNote,
+  proposalTermsAndConditions
+} from "@markitome/shared";
+import type { ProposalOutput, ProposalPricingRow, ProposalPricingSummary } from "@markitome/shared";
 import { useState } from "react";
 
 const initialForm = {
   clientName: "",
   clientWebsite: "",
+  clientEmail: "",
+  clientPhone: "",
+  clientAddress: "",
   industry: "",
   requiredServices: "",
   budgetRange: "",
   timeline: "",
   proposalObjective: "",
   notes: "",
+  discountPercent: "0",
+  departmentCode: "MKT",
+  clientCode: "",
+  deliveryDate: "",
+  iteration: "001",
   useKnowledgeBase: false
 };
 
@@ -73,6 +90,17 @@ export function ProposalBuilder() {
           <Field label="Client website">
             <TextInput value={form.clientWebsite} onChange={(event) => updateField("clientWebsite", event.target.value)} />
           </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Client email">
+              <TextInput value={form.clientEmail} onChange={(event) => updateField("clientEmail", event.target.value)} />
+            </Field>
+            <Field label="Client phone">
+              <TextInput value={form.clientPhone} onChange={(event) => updateField("clientPhone", event.target.value)} />
+            </Field>
+          </div>
+          <Field label="Client address">
+            <TextArea value={form.clientAddress} onChange={(event) => updateField("clientAddress", event.target.value)} />
+          </Field>
           <Field label="Industry">
             <TextInput value={form.industry} onChange={(event) => updateField("industry", event.target.value)} />
           </Field>
@@ -85,6 +113,25 @@ export function ProposalBuilder() {
             </Field>
             <Field label="Timeline">
               <TextInput value={form.timeline} onChange={(event) => updateField("timeline", event.target.value)} />
+            </Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Discount (%)">
+              <TextInput value={form.discountPercent} onChange={(event) => updateField("discountPercent", event.target.value)} />
+            </Field>
+            <Field label="Department code">
+              <TextInput value={form.departmentCode} onChange={(event) => updateField("departmentCode", event.target.value)} />
+            </Field>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Client code">
+              <TextInput value={form.clientCode} onChange={(event) => updateField("clientCode", event.target.value)} />
+            </Field>
+            <Field label="Delivery date (MMDD)">
+              <TextInput value={form.deliveryDate} onChange={(event) => updateField("deliveryDate", event.target.value)} />
+            </Field>
+            <Field label="Iteration">
+              <TextInput value={form.iteration} onChange={(event) => updateField("iteration", event.target.value)} />
             </Field>
           </div>
           <Field label="Proposal objective">
@@ -122,6 +169,11 @@ export function ProposalBuilder() {
       <section className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
         {output ? (
           <div className="grid gap-5">
+            <div className="rounded-md border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-700">
+              <p><span className="font-semibold text-ink">Proposal number:</span> {output.proposalNumber}</p>
+              <p className="mt-1"><span className="font-semibold text-ink">File name:</span> {output.fileName}</p>
+              <p className="mt-1"><span className="font-semibold text-ink">Client:</span> {output.clientName} {output.clientUrl ? `(${output.clientUrl})` : ""}</p>
+            </div>
             <h2 className="text-2xl font-semibold text-ink">{output.proposalTitle}</h2>
             <OutputBlock title="Executive summary" content={output.executiveSummary} />
             <OutputBlock title="Client understanding" content={output.clientUnderstanding} />
@@ -129,7 +181,19 @@ export function ProposalBuilder() {
             <OutputList title="Deliverables" items={output.deliverables} />
             <OutputBlock title="Timeline" content={output.timeline} />
             <OutputBlock title="Commercial structure" content={output.commercialStructure} />
+            <PricingTable rows={output.pricingTable} summary={output.pricingSummary} />
+            <OutputList title="Tax and on-actuals notes" items={output.taxAndActualsNotes} />
             <OutputList title="Terms and conditions" items={output.termsAndConditions} />
+            <OutputList title="Acceptance" items={output.acceptance} />
+            <OutputList
+              title="Contact information"
+              items={[
+                output.contactInformation.company,
+                output.contactInformation.address,
+                output.contactInformation.email,
+                output.contactInformation.phone
+              ]}
+            />
             <OutputList title="Next steps" items={output.nextSteps} />
           </div>
         ) : (
@@ -138,6 +202,43 @@ export function ProposalBuilder() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function PricingTable({ rows, summary }: { rows: ProposalPricingRow[]; summary: ProposalPricingSummary }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-leaf">Budget and fees</h3>
+      <div className="mt-3 overflow-hidden rounded-md border border-neutral-200">
+        <table className="w-full border-collapse text-left text-sm">
+          <thead className="bg-neutral-50 text-neutral-500">
+            <tr>
+              <th className="px-3 py-2 font-medium">Service</th>
+              <th className="px-3 py-2 font-medium">India low</th>
+              <th className="px-3 py-2 font-medium">India high</th>
+              <th className="px-3 py-2 font-medium">Selected</th>
+              <th className="px-3 py-2 font-medium">Payment terms</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.service} className="border-t border-neutral-200 align-top">
+                <td className="px-3 py-2 font-medium text-ink">{row.service}</td>
+                <td className="px-3 py-2 text-neutral-700">{row.indiaLow}</td>
+                <td className="px-3 py-2 text-neutral-700">{row.indiaHigh}</td>
+                <td className="px-3 py-2 text-neutral-700">{row.selectedAmount}</td>
+                <td className="px-3 py-2 text-neutral-700">{row.paymentTerms}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-3 grid gap-2 rounded-md bg-neutral-50 p-4 text-sm text-neutral-700 sm:grid-cols-2">
+        <p><span className="font-semibold text-ink">Subtotal:</span> {summary.subtotal}</p>
+        <p><span className="font-semibold text-ink">Discount:</span> {summary.discountPercent}% ({summary.discountAmount})</p>
+        <p className="sm:col-span-2"><span className="font-semibold text-ink">Consolidated total after discount:</span> {summary.totalAfterDiscount}</p>
+      </div>
     </div>
   );
 }
@@ -166,8 +267,17 @@ function OutputList({ title, items }: { title: string; items: string[] }) {
 
 function normalizeProposalOutput(value: unknown, form: typeof initialForm): ProposalOutput {
   const record = unwrapRecord(value);
+  const pricing = buildProposalPricing(form.requiredServices, form.discountPercent);
+  const fileName = generateProposalFileName(form);
 
   return {
+    proposalNumber: toText(record.proposalNumber ?? record.proposal_number, fileName),
+    fileName: toText(record.fileName ?? record.file_name, fileName),
+    clientName: toText(record.clientName ?? record.client_name, form.clientName),
+    clientUrl: toText(record.clientUrl ?? record.client_url, form.clientWebsite),
+    clientEmail: toText(record.clientEmail ?? record.client_email, form.clientEmail),
+    clientPhone: toText(record.clientPhone ?? record.client_phone, form.clientPhone),
+    clientAddress: toText(record.clientAddress ?? record.client_address, form.clientAddress),
     proposalTitle: toText(record.proposalTitle ?? record.proposal_title, `${form.clientName || "Client"} Growth Proposal`),
     executiveSummary: toText(record.executiveSummary ?? record.executive_summary, "Executive summary was not provided."),
     clientUnderstanding: toText(
@@ -177,9 +287,46 @@ function normalizeProposalOutput(value: unknown, form: typeof initialForm): Prop
     scopeOfServices: toList(record.scopeOfServices ?? record.scope_of_services, form.requiredServices),
     deliverables: toList(record.deliverables, "Strategy roadmap, execution plan, reporting"),
     timeline: toText(record.timeline, form.timeline || "Timeline to be confirmed."),
-    commercialStructure: toText(record.commercialStructure ?? record.commercial_structure, form.budgetRange || "Commercials to be confirmed."),
-    termsAndConditions: toList(record.termsAndConditions ?? record.terms_and_conditions, "Final scope subject to discovery."),
+    commercialStructure: toText(
+      record.commercialStructure ?? record.commercial_structure,
+      `Subtotal ${pricing.pricingSummary.subtotal}; discount ${pricing.pricingSummary.discountPercent}%; total after discount ${pricing.pricingSummary.totalAfterDiscount}.`
+    ),
+    pricingTable: normalizePricingTable(record.pricingTable ?? record.pricing_table, pricing.pricingTable),
+    pricingSummary: normalizePricingSummary(record.pricingSummary ?? record.pricing_summary, pricing.pricingSummary),
+    taxAndActualsNotes: [proposalGstNote, proposalOnActualsNote],
+    termsAndConditions: proposalTermsAndConditions,
+    acceptance: proposalAcceptanceText,
+    contactInformation: proposalContactInfo,
     nextSteps: toList(record.nextSteps ?? record.next_steps, "Confirm scope, approve commercials, schedule kickoff")
+  };
+}
+
+function normalizePricingTable(value: unknown, fallback: ProposalPricingRow[]) {
+  if (!Array.isArray(value)) return fallback;
+  return value.map((item, index) => {
+    const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const fallbackRow = fallback[index] ?? fallback[0];
+    return {
+      service: toText(row.service, fallbackRow.service),
+      features: toText(row.features, fallbackRow.features ?? ""),
+      indiaLow: toText(row.indiaLow ?? row.india_low, fallbackRow.indiaLow),
+      indiaHigh: toText(row.indiaHigh ?? row.india_high, fallbackRow.indiaHigh),
+      paymentTerms: toText(row.paymentTerms ?? row.payment_terms, fallbackRow.paymentTerms),
+      selectedAmount: toText(row.selectedAmount ?? row.selected_amount, fallbackRow.selectedAmount),
+      notes: toText(row.notes, fallbackRow.notes)
+    };
+  });
+}
+
+function normalizePricingSummary(value: unknown, fallback: ProposalPricingSummary) {
+  const row = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    subtotal: toText(row.subtotal, fallback.subtotal),
+    discountPercent: Number(row.discountPercent ?? row.discount_percent ?? fallback.discountPercent),
+    discountAmount: toText(row.discountAmount ?? row.discount_amount, fallback.discountAmount),
+    totalAfterDiscount: toText(row.totalAfterDiscount ?? row.total_after_discount, fallback.totalAfterDiscount),
+    gstNote: proposalGstNote,
+    onActualsNote: proposalOnActualsNote
   };
 }
 
