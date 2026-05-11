@@ -21,6 +21,10 @@
     {
       "pattern": "app.markitome.ai",
       "custom_domain": true
+    },
+    {
+      "pattern": "api.markitome.ai",
+      "custom_domain": true
     }
   ]
 }
