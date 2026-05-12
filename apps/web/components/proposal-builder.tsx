@@ -35,9 +35,9 @@ export function ProposalBuilder() {
   const [form, setForm] = useState(initialForm);
   const [output, setOutput] = useState<ProposalOutput | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [isAddingToDrive, setIsAddingToDrive] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
+  const [driveMessage, setDriveMessage] = useState<string | null>(null);
 
   async function generateProposal() {
     setIsGenerating(true);
@@ -64,36 +64,31 @@ export function ProposalBuilder() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
-  async function downloadPdf() {
+  async function addToGoogleDrive() {
     if (!output) return;
 
-    setIsDownloading(true);
-    setDownloadMessage(null);
+    setIsAddingToDrive(true);
+    setDriveMessage(null);
 
-    const response = await fetch("/api/proposals/pdf", {
+    const response = await fetch("/api/proposals/add-to-drive", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ output })
     });
 
-    setIsDownloading(false);
+    setIsAddingToDrive(false);
+    const payload = await response.json();
 
     if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      setDownloadMessage(payload.error ?? "PDF download failed.");
+      setDriveMessage(payload.error ?? "Unable to add proposal to Google Drive.");
       return;
     }
 
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${output.fileName || "Markitome-Proposal"}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    setDownloadMessage("PDF downloaded.");
+    const url = payload.data?.url;
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    setDriveMessage("Proposal added to Google Drive.");
   }
 
   return (
@@ -159,7 +154,7 @@ export function ProposalBuilder() {
             Use Knowledge Base
           </label>
           {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
-          {downloadMessage ? <p className="text-sm font-medium text-leaf">{downloadMessage}</p> : null}
+          {driveMessage ? <p className="text-sm font-medium text-leaf">{driveMessage}</p> : null}
           <div className="flex flex-wrap gap-3">
             <Button onClick={generateProposal} disabled={isGenerating}>
               {isGenerating ? "Generating..." : "Generate Proposal"}
@@ -167,10 +162,10 @@ export function ProposalBuilder() {
             <button
               className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
               type="button"
-              onClick={downloadPdf}
-              disabled={!output || isDownloading}
+              onClick={addToGoogleDrive}
+              disabled={!output || isAddingToDrive}
             >
-              {isDownloading ? "Preparing PDF..." : "Download PDF"}
+              {isAddingToDrive ? "Adding..." : "Add to Google Drive"}
             </button>
           </div>
         </div>
