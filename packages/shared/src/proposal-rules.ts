@@ -2,7 +2,7 @@ export type ServicePricing = {
   service: string;
   features?: string;
   indiaLow: string;
-  indiaHigh: string;
+  indiaHigh?: string;
   paymentTerms: string;
 };
 
@@ -42,7 +42,8 @@ export const proposalContactInfo = {
   phone: "+91 63019 36852"
 };
 
-export const proposalGstNote = "Prices DO NOT include GST. 18% GST will be added over the listed prices during billing.";
+export const proposalGstNote =
+  "Prices DO NOT include GST. 18% GST will be added over the listed prices during billing. All retainer models require ₹15,000 setup fee.";
 
 export const proposalOnActualsNote =
   "Third-party costs and variable external expenses are billed on actuals wherever applicable, including ad spends, influencer fees, media buying or publishing costs, printing, production, photography, videography, domains, hosting, software subscriptions, paid plugins, travel, logistics, and any client-approved out-of-scope services.";
@@ -52,53 +53,50 @@ export const servicePricingIndia: ServicePricing[] = [
     service: "Personal Website (WordPress + Elementor Pro)",
     features: "AI chatbot integration or LLM-based SEO tools; performance dashboards; subscription content services; website maintenance/support retainer may increase costs.",
     indiaLow: "₹20,000",
-    indiaHigh: "₹50,000",
     paymentTerms: "One time payment for the development but Elementor will be charged from Year 2"
   },
   {
     service: "Corporate Website (WordPress + Elementor Pro)",
-    indiaLow: "₹60,000",
-    indiaHigh: "₹1,50,000",
+    indiaLow: "₹30,000",
     paymentTerms: "One time payment for the development but Elementor will be charged from Year 2"
   },
   {
     service: "E-commerce Website (WordPress + WooCommerce + Elementor Pro)",
-    indiaLow: "₹1,00,000",
-    indiaHigh: "₹5,00,000+",
+    indiaLow: "₹70,000",
     paymentTerms: "One time payment for the development but Elementor will be charged from Year 2"
   },
   {
     service: "Basic Mobile App Development",
     features: "AI chatbot integration or LLM-based SEO tools; performance dashboards; subscription content services; monthly maintenance/support retainer may increase costs.",
-    indiaLow: "₹10,000",
-    indiaHigh: "₹1,00,000",
+    indiaLow: "₹35,000",
     paymentTerms: "May require monthly maintenance"
   },
   {
     service: "Native Mobile App Development",
     indiaLow: "₹75,000",
-    indiaHigh: "₹55,00,000+",
     paymentTerms: "May require monthly maintenance"
   },
-  { service: "Search Engine Optimization (SEO)", indiaLow: "₹30,000", indiaHigh: "₹75,000", paymentTerms: "Monthly Retainer" },
-  { service: "Social Media Marketing", indiaLow: "₹30,000", indiaHigh: "₹1,00,000", paymentTerms: "Monthly Retainer" },
+  { service: "Search Engine Optimization (SEO)", indiaLow: "₹20,000", paymentTerms: "Monthly Retainer" },
+  { service: "Social Media Marketing", indiaLow: "₹25,000", paymentTerms: "Monthly Retainer" },
   {
     service: "Influencer Marketing",
     features: "Nano, micro, macro, and mega influencer costs vary by follower tier and content type.",
     indiaLow: "₹10,000",
-    indiaHigh: "₹70,000",
     paymentTerms: "Project Specific. Influencer costs are billed on actuals per post/content piece."
   },
-  { service: "PPC Campaign Management", indiaLow: "₹50,000", indiaHigh: "₹1,50,000", paymentTerms: "Monthly Retainer / Project Specific" },
-  { service: "Blogging - General", indiaLow: "₹10,000", indiaHigh: "₹25,000", paymentTerms: "3 Posts" },
-  { service: "Blogging - Technical", indiaLow: "₹15,000", indiaHigh: "₹35,000", paymentTerms: "2 Posts" },
-  { service: "LLM Optimization", indiaLow: "₹50,000", indiaHigh: "₹1,50,000", paymentTerms: "Monthly Retainer" },
-  { service: "Meta/Google Ad Campaigns", indiaLow: "₹50,000", indiaHigh: "₹2,00,000", paymentTerms: "Monthly Retainer / Project Specific" },
-  { service: "Email Marketing", indiaLow: "₹10,000", indiaHigh: "₹50,000", paymentTerms: "Per Campaign" },
-  { service: "Graphic Design Services", indiaLow: "₹10,000", indiaHigh: "₹50,000", paymentTerms: "Project Specific" },
-  { service: "Press Releases (including publishing)", indiaLow: "₹35,000", indiaHigh: "₹1,00,000", paymentTerms: "Media cost may cost more" },
-  { service: "Complete Media Pack (including publishing)", indiaLow: "₹3,50,000", indiaHigh: "₹25,00,000", paymentTerms: "Media cost may cost more" },
-  { service: "Branding Pack (Comprehensive)", features: "Brand audit and strategy workshops.", indiaLow: "₹75,000", indiaHigh: "₹3,00,000", paymentTerms: "Project Specific" }
+  { service: "PPC/PPM Campaign Management (Meta/Google)", indiaLow: "₹20,000", paymentTerms: "Monthly Retainer / Project Specific" },
+  { service: "Blogging - General", indiaLow: "₹10,000", paymentTerms: "3 Posts" },
+  { service: "Blogging - Technical", indiaLow: "₹15,000", paymentTerms: "2 Posts" },
+  { service: "LLM Optimization", indiaLow: "₹50,000", paymentTerms: "Monthly Retainer" },
+  { service: "Email Marketing", indiaLow: "₹10,000", paymentTerms: "Per Campaign" },
+  { service: "Graphic Design Services", indiaLow: "₹10,000", paymentTerms: "Project Specific" },
+  { service: "Press Releases Service Charge", indiaLow: "₹10,000", paymentTerms: "Media Cost May Cost More" },
+  { service: "Complete Media Pack Service Charge", indiaLow: "₹2,50,000", paymentTerms: "Media Cost May Cost More" },
+  {
+    service: "1 on 1 Consultation with Vivek Rangabhashyam (Used for Marketing Consultation and Brand Positioning)",
+    indiaLow: "₹75,000 (Per Hour)",
+    paymentTerms: "Minimum 3 hours commitment"
+  }
 ];
 
 export function buildProposalPricing(requiredServices: string, discountPercentValue: string | number | undefined) {
@@ -148,7 +146,9 @@ function serviceMatches(requested: string, service: string) {
     serviceName,
     serviceName.replace("search engine optimization", "seo"),
     serviceName.replace("website", "web"),
-    serviceName.replace("meta/google ad campaigns", "ads"),
+    serviceName.replace("ppc/ppm campaign management (meta/google)", "meta/google ad campaigns"),
+    serviceName.replace("ppc/ppm campaign management (meta/google)", "ads"),
+    serviceName.replace("ppc/ppm campaign management (meta/google)", "ppc"),
     serviceName.replace("blogging - general", "blog"),
     serviceName.replace("blogging - technical", "technical blog")
   ];

@@ -17,7 +17,8 @@ export async function POST(request: Request) {
   if (!accessToken || typeof accessToken !== "string") {
     return Response.json(
       {
-        error: "Google Drive access is not connected. Please sign out and sign in again to grant Drive and Docs permissions."
+        code: "GOOGLE_RECONNECT_REQUIRED",
+        error: "Google Drive access is not connected. Reconnect Google Drive to grant Drive and Docs permissions."
       },
       { status: 403 }
     );
@@ -193,8 +194,7 @@ function formatPricingTable(value: unknown) {
       const row = record(item);
       return [
         `Service: ${text(row.service, "")}`,
-        `India Low: ${text(row.indiaLow, "")}`,
-        `India High: ${text(row.indiaHigh, "")}`,
+        `India Price: ${text(row.indiaLow, "")}`,
         `Selected: ${text(row.selectedAmount, "")}`,
         `Payment Terms: ${text(row.paymentTerms, "")}`
       ].join("\n");

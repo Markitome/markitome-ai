@@ -38,6 +38,7 @@ export function ProposalBuilder() {
   const [isAddingToDrive, setIsAddingToDrive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [driveMessage, setDriveMessage] = useState<string | null>(null);
+  const [needsGoogleReconnect, setNeedsGoogleReconnect] = useState(false);
 
   async function generateProposal() {
     setIsGenerating(true);
@@ -69,6 +70,7 @@ export function ProposalBuilder() {
 
     setIsAddingToDrive(true);
     setDriveMessage(null);
+    setNeedsGoogleReconnect(false);
 
     const response = await fetch("/api/proposals/add-to-drive", {
       method: "POST",
@@ -81,6 +83,7 @@ export function ProposalBuilder() {
 
     if (!response.ok) {
       setDriveMessage(payload.error ?? "Unable to add proposal to Google Drive.");
+      setNeedsGoogleReconnect(payload.code === "GOOGLE_RECONNECT_REQUIRED");
       return;
     }
 
@@ -89,6 +92,10 @@ export function ProposalBuilder() {
       window.open(url, "_blank", "noopener,noreferrer");
     }
     setDriveMessage("Proposal added to Google Drive.");
+  }
+
+  function reconnectGoogleDrive() {
+    window.location.href = `/api/auth/signin/google?callbackUrl=${encodeURIComponent("/proposal-builder")}`;
   }
 
   return (
@@ -159,6 +166,15 @@ export function ProposalBuilder() {
             <Button onClick={generateProposal} disabled={isGenerating}>
               {isGenerating ? "Generating..." : "Generate Proposal"}
             </Button>
+            {needsGoogleReconnect ? (
+              <button
+                className="rounded-md border border-leaf bg-white px-4 py-2 text-sm font-medium text-leaf hover:bg-neutral-100"
+                type="button"
+                onClick={reconnectGoogleDrive}
+              >
+                Reconnect Google Drive
+              </button>
+            ) : null}
             <button
               className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
               type="button"
@@ -220,8 +236,7 @@ function PricingTable({ rows, summary }: { rows: ProposalPricingRow[]; summary: 
           <thead className="bg-neutral-50 text-neutral-500">
             <tr>
               <th className="px-3 py-2 font-medium">Service</th>
-              <th className="px-3 py-2 font-medium">India low</th>
-              <th className="px-3 py-2 font-medium">India high</th>
+              <th className="px-3 py-2 font-medium">India price</th>
               <th className="px-3 py-2 font-medium">Selected</th>
               <th className="px-3 py-2 font-medium">Payment terms</th>
             </tr>
@@ -231,7 +246,6 @@ function PricingTable({ rows, summary }: { rows: ProposalPricingRow[]; summary: 
               <tr key={row.service} className="border-t border-neutral-200 align-top">
                 <td className="px-3 py-2 font-medium text-ink">{row.service}</td>
                 <td className="px-3 py-2 text-neutral-700">{row.indiaLow}</td>
-                <td className="px-3 py-2 text-neutral-700">{row.indiaHigh}</td>
                 <td className="px-3 py-2 text-neutral-700">{row.selectedAmount}</td>
                 <td className="px-3 py-2 text-neutral-700">{row.paymentTerms}</td>
               </tr>
@@ -315,7 +329,7 @@ function normalizePricingTable(value: unknown, fallback: ProposalPricingRow[]) {
       service: toText(row.service, fallbackRow.service),
       features: toText(row.features, fallbackRow.features ?? ""),
       indiaLow: toText(row.indiaLow ?? row.india_low, fallbackRow.indiaLow),
-      indiaHigh: toText(row.indiaHigh ?? row.india_high, fallbackRow.indiaHigh),
+      indiaHigh: toText(row.indiaHigh ?? row.india_high, fallbackRow.indiaHigh ?? ""),
       paymentTerms: toText(row.paymentTerms ?? row.payment_terms, fallbackRow.paymentTerms),
       selectedAmount: toText(row.selectedAmount ?? row.selected_amount, fallbackRow.selectedAmount),
       notes: toText(row.notes, fallbackRow.notes)
