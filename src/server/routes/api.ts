@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { z } from "zod";
 import type { AppVariables, Env, MeetingPlatform } from "../../types";
 import { BotSessionService } from "../bots/BotSessionService";
@@ -11,6 +12,9 @@ import { enqueueAiNotes, enqueueTranscription } from "../queues/jobs";
 
 export const apiRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 type AppContext = Context<{ Bindings: Env; Variables: AppVariables }>;
+
+const googleCalendarStateCookie = "mt_google_calendar_state";
+const googleCalendarScope = "https://www.googleapis.com/auth/calendar.readonly";
 
 const consentStatusSchema = z.enum(["not_required", "pending", "confirmed", "rejected", "unknown"]);
 const sourceTypeSchema = z.enum([
@@ -575,6 +579,137 @@ apiRoutes.post("/bots/webhook/:platform", async (c) => {
   return c.json({ ok: true, bot_session: result });
 });
 
+apiRoutes.get("/integrations/google-calendar/connect", async (c) => {
+  if (!c.env.GOOGLE_CLIENT_ID) return c.redirect("/setup-required?missing=GOOGLE_CLIENT_ID");
+  const state = crypto.randomUUID();
+  setCookie(c, googleCalendarStateCookie, state, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 600
+  });
+  const redirectUri = `${new URL(c.req.url).origin}/api/integrations/google-calendar/callback`;
+  const params = new URLSearchParams({
+    client_id: c.env.GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: googleCalendarScope,
+    state,
+    access_type: "offline",
+    include_granted_scopes: "true",
+    prompt: "consent"
+  });
+  return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+apiRoutes.get("/integrations/google-calendar/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  const expectedState = getCookie(c, googleCalendarStateCookie);
+  deleteCookie(c, googleCalendarStateCookie, { path: "/" });
+  if (!code || !state || state !== expectedState) throw new ApiError(400, "invalid_oauth_state", "Google Calendar OAuth state could not be verified.");
+  if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) return c.redirect("/setup-required?missing=GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET");
+
+  const origin = new URL(c.req.url).origin;
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: c.env.GOOGLE_CLIENT_ID,
+      client_secret: c.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: `${origin}/api/integrations/google-calendar/callback`,
+      grant_type: "authorization_code"
+    })
+  });
+  if (!tokenResponse.ok) throw new ApiError(401, "calendar_oauth_exchange_failed", "Google Calendar OAuth token exchange failed.");
+  const tokenJson = (await tokenResponse.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+    token_type?: string;
+  };
+  if (!tokenJson.access_token) throw new ApiError(401, "calendar_missing_access_token", "Google did not return a Calendar access token.");
+
+  const user = c.get("user");
+  const existing = await getGoogleCalendarIntegration(c.env, user.id);
+  const existingConfig = existing ? safeParseIntegrationConfig(existing.config_json) : {};
+  const config = {
+    ...existingConfig,
+    user_id: user.id,
+    email: user.email,
+    scope: tokenJson.scope ?? googleCalendarScope,
+    access_token: tokenJson.access_token,
+    refresh_token: tokenJson.refresh_token ?? existingConfig.refresh_token ?? null,
+    expires_at: new Date(Date.now() + (tokenJson.expires_in ?? 3600) * 1000).toISOString(),
+    connected_at: existingConfig.connected_at ?? new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  await c.env.DB.prepare(
+    `INSERT INTO integrations (id, provider, status, config_json, created_at, updated_at)
+     VALUES (?, 'google_calendar', 'enabled', ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET status = 'enabled', config_json = excluded.config_json, updated_at = excluded.updated_at`
+  )
+    .bind(googleCalendarIntegrationId(user.id), JSON.stringify(config), new Date().toISOString(), new Date().toISOString())
+    .run();
+  await writeAuditLog(c, { action: "integration_change", targetType: "integration", targetId: "google_calendar", metadata: { connected: true } });
+  return c.redirect("/integrations?connected=google_calendar");
+});
+
+apiRoutes.get("/integrations/google-calendar/status", async (c) => {
+  const integration = await getGoogleCalendarIntegration(c.env, c.get("user").id);
+  return c.json({ google_calendar: sanitizeGoogleCalendarIntegration(integration) });
+});
+
+apiRoutes.get("/integrations/google-calendar/events", async (c) => {
+  const query = parseQuery(
+    c,
+    z.object({
+      days: z.coerce.number().int().min(1).max(30).optional().default(7)
+    })
+  );
+  const events = await listGoogleCalendarEvents(c, query.days);
+  return c.json({ events });
+});
+
+apiRoutes.post("/integrations/google-calendar/import-upcoming", async (c) => {
+  const input = await parseJson(
+    c,
+    z.object({
+      days: z.number().int().min(1).max(30).optional().default(7)
+    })
+  );
+  const events = await listGoogleCalendarEvents(c, input.days);
+  const imported: Array<{ id: string; title: string; calendar_event_id: string }> = [];
+  for (const event of events) {
+    if (!event.id || !event.summary || !event.start) continue;
+    const meetingUrl = event.hangoutLink ?? event.htmlLink ?? null;
+    const existing = await c.env.DB.prepare(
+      "SELECT id FROM meetings WHERE owner_user_id = ? AND meeting_url = ? AND deleted_at IS NULL"
+    )
+      .bind(c.get("user").id, meetingUrl)
+      .first<{ id: string }>();
+    if (existing) continue;
+    const meeting = await createMeeting(c, {
+      title: event.summary,
+      description: event.description ?? null,
+      meeting_datetime: event.start,
+      platform: "google_meet",
+      source_type: "google_meet",
+      meeting_url: meetingUrl,
+      agenda: event.description ?? "",
+      manual_notes: "",
+      participants: event.attendees.map((attendee) => ({ email: attendee.email, name: attendee.name })),
+      visibility: "private"
+    });
+    imported.push({ id: meeting.id, title: meeting.title, calendar_event_id: event.id });
+  }
+  await writeAuditLog(c, { action: "integration_change", targetType: "integration", targetId: "google_calendar", metadata: { imported: imported.length } });
+  return c.json({ imported, scanned: events.length });
+});
+
 apiRoutes.get("/admin/dashboard", requireRoles(["admin", "super_admin"]), async (c) => {
   const [meetings, recordings, failures] = await Promise.all([
     c.env.DB.prepare("SELECT COUNT(*) AS count FROM meetings WHERE deleted_at IS NULL").first(),
@@ -694,7 +829,10 @@ apiRoutes.get("/admin/system-settings", requireRoles(["super_admin"]), async (c)
 apiRoutes.get("/admin/integrations", requireRoles(["super_admin"]), async (c) => {
   const integrations = await c.env.DB.prepare("SELECT provider, status, config_json, updated_at FROM integrations WHERE deleted_at IS NULL ORDER BY provider ASC").all();
   return c.json({
-    integrations: integrations.results,
+    integrations: integrations.results.map((integration) => ({
+      ...integration,
+      config_json: sanitizeIntegrationConfig(integration.provider as string, integration.config_json as string)
+    })),
     required_secrets: {
       google_oauth: Boolean(c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET),
       anthropic: Boolean(c.env.ANTHROPIC_API_KEY),
@@ -768,6 +906,173 @@ apiRoutes.get("/search", async (c) => {
     results: results.results
   });
 });
+
+type GoogleCalendarIntegration = {
+  id: string;
+  provider: string;
+  status: string;
+  config_json: string;
+  updated_at: string;
+} | null;
+
+type GoogleCalendarConfig = {
+  user_id?: string;
+  email?: string;
+  scope?: string;
+  access_token?: string;
+  refresh_token?: string | null;
+  expires_at?: string;
+  connected_at?: string;
+  updated_at?: string;
+};
+
+type GoogleCalendarEvent = {
+  id: string;
+  summary: string;
+  description: string | null;
+  start: string | null;
+  end: string | null;
+  htmlLink: string | null;
+  hangoutLink: string | null;
+  attendees: Array<{ email?: string; name?: string }>;
+};
+
+function googleCalendarIntegrationId(userId: string): string {
+  return `integration_google_calendar_${userId}`;
+}
+
+async function getGoogleCalendarIntegration(env: Env, userId: string): Promise<GoogleCalendarIntegration> {
+  return env.DB.prepare(
+    "SELECT id, provider, status, config_json, updated_at FROM integrations WHERE id = ? AND deleted_at IS NULL"
+  )
+    .bind(googleCalendarIntegrationId(userId))
+    .first<NonNullable<GoogleCalendarIntegration>>();
+}
+
+function safeParseIntegrationConfig(configJson: string | null | undefined): GoogleCalendarConfig {
+  if (!configJson) return {};
+  try {
+    return JSON.parse(configJson) as GoogleCalendarConfig;
+  } catch {
+    return {};
+  }
+}
+
+function sanitizeIntegrationConfig(provider: string, configJson: string): string {
+  if (provider !== "google_calendar") return configJson;
+  return JSON.stringify(sanitizeGoogleCalendarConfig(safeParseIntegrationConfig(configJson)));
+}
+
+function sanitizeGoogleCalendarIntegration(integration: GoogleCalendarIntegration): {
+  connected: boolean;
+  status: string;
+  email: string | null;
+  scope: string | null;
+  connected_at: string | null;
+  updated_at: string | null;
+} {
+  if (!integration) {
+    return { connected: false, status: "disabled", email: null, scope: null, connected_at: null, updated_at: null };
+  }
+  const config = safeParseIntegrationConfig(integration.config_json);
+  return {
+    connected: integration.status === "enabled",
+    status: integration.status,
+    email: config.email ?? null,
+    scope: config.scope ?? null,
+    connected_at: config.connected_at ?? null,
+    updated_at: integration.updated_at ?? config.updated_at ?? null
+  };
+}
+
+function sanitizeGoogleCalendarConfig(config: GoogleCalendarConfig) {
+  return {
+    user_id: config.user_id,
+    email: config.email,
+    scope: config.scope,
+    connected_at: config.connected_at,
+    updated_at: config.updated_at,
+    has_access_token: Boolean(config.access_token),
+    has_refresh_token: Boolean(config.refresh_token),
+    expires_at: config.expires_at
+  };
+}
+
+async function listGoogleCalendarEvents(c: AppContext, days: number): Promise<GoogleCalendarEvent[]> {
+  const integration = await getGoogleCalendarIntegration(c.env, c.get("user").id);
+  if (!integration || integration.status !== "enabled") {
+    throw new ApiError(400, "google_calendar_not_connected", "Connect Google Calendar before syncing events.");
+  }
+  const accessToken = await getValidGoogleCalendarAccessToken(c.env, integration);
+  const timeMin = new Date().toISOString();
+  const timeMax = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  const url = new URL("https://www.googleapis.com/calendar/v3/calendars/primary/events");
+  url.searchParams.set("timeMin", timeMin);
+  url.searchParams.set("timeMax", timeMax);
+  url.searchParams.set("singleEvents", "true");
+  url.searchParams.set("orderBy", "startTime");
+  url.searchParams.set("maxResults", "50");
+
+  const response = await fetch(url.toString(), {
+    headers: { authorization: `Bearer ${accessToken}` }
+  });
+  if (!response.ok) throw new ApiError(502, "google_calendar_events_failed", "Could not fetch Google Calendar events.");
+  const json = (await response.json()) as {
+    items?: Array<{
+      id?: string;
+      summary?: string;
+      description?: string;
+      start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
+      htmlLink?: string;
+      hangoutLink?: string;
+      attendees?: Array<{ email?: string; displayName?: string }>;
+    }>;
+  };
+  return (json.items ?? []).map((event) => ({
+    id: event.id ?? "",
+    summary: event.summary ?? "Untitled calendar event",
+    description: event.description ?? null,
+    start: event.start?.dateTime ?? event.start?.date ?? null,
+    end: event.end?.dateTime ?? event.end?.date ?? null,
+    htmlLink: event.htmlLink ?? null,
+    hangoutLink: event.hangoutLink ?? null,
+    attendees: (event.attendees ?? []).map((attendee) => ({ email: attendee.email, name: attendee.displayName }))
+  }));
+}
+
+async function getValidGoogleCalendarAccessToken(env: Env, integration: NonNullable<GoogleCalendarIntegration>): Promise<string> {
+  const config = safeParseIntegrationConfig(integration.config_json);
+  const expiresAt = config.expires_at ? new Date(config.expires_at).getTime() : 0;
+  if (config.access_token && expiresAt > Date.now() + 60_000) return config.access_token;
+  if (!config.refresh_token) throw new ApiError(401, "google_calendar_reconnect_required", "Reconnect Google Calendar to refresh access.");
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) throw new ApiError(500, "google_oauth_not_configured", "Google OAuth secrets are not configured.");
+
+  const refreshResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      refresh_token: config.refresh_token,
+      grant_type: "refresh_token"
+    })
+  });
+  if (!refreshResponse.ok) throw new ApiError(401, "google_calendar_refresh_failed", "Google Calendar token refresh failed.");
+  const refreshJson = (await refreshResponse.json()) as { access_token?: string; expires_in?: number; scope?: string };
+  if (!refreshJson.access_token) throw new ApiError(401, "google_calendar_missing_access_token", "Google did not return a refreshed access token.");
+  const nextConfig: GoogleCalendarConfig = {
+    ...config,
+    access_token: refreshJson.access_token,
+    scope: refreshJson.scope ?? config.scope,
+    expires_at: new Date(Date.now() + (refreshJson.expires_in ?? 3600) * 1000).toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  await env.DB.prepare("UPDATE integrations SET config_json = ?, updated_at = ? WHERE id = ?")
+    .bind(JSON.stringify(nextConfig), new Date().toISOString(), integration.id)
+    .run();
+  return refreshJson.access_token;
+}
 
 async function createMeeting(
   c: AppContext,

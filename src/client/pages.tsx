@@ -39,6 +39,7 @@ function Shell({ user, path, children }: { user: AppUser; path: string; children
   const navItems = [
     { href: "/dashboard", label: "Home" },
     { href: "/today", label: "Today" },
+    { href: "/calendar", label: "Calendar" },
     { href: "/library", label: "Library" },
     { href: "/recordings", label: "Recordings" },
     { href: "/clips", label: "Clips" },
@@ -139,6 +140,7 @@ function getInitials(value: string) {
 function selectPage(path: string, user: AppUser) {
   if (path === "/" || path === "/dashboard") return <Dashboard user={user} />;
   if (path === "/today") return <TodayPage />;
+  if (path === "/calendar") return <CalendarIntegrationPage />;
   if (path === "/meetings" || path === "/library" || path === "/library/") return <Library title="Meeting Library" endpoint="/api/meetings" />;
   if (path === "/meetings/new") return <NewMeetingPage />;
   if (path === "/recordings") return <Library title="My Recordings" endpoint="/api/recordings" />;
@@ -337,6 +339,38 @@ function NewMeetingPage() {
         <button type="submit">Create meeting note</button>
       </form>
       <pre id="newMeetingResult" className="json-output"></pre>
+    </section>
+  );
+}
+
+function CalendarIntegrationPage() {
+  return (
+    <section className="stack">
+      <div className="heading">
+        <div>
+          <p className="eyebrow">Google Calendar</p>
+          <h1>Calendar Integration</h1>
+        </div>
+        <a className="primary" href="/api/integrations/google-calendar/connect">Connect Google Calendar</a>
+      </div>
+      <div className="notice">Calendar sync uses Google Calendar read-only access. It creates Markitome meeting notes from events you import; it does not edit your calendar.</div>
+      <section className="panel" data-load="/api/integrations/google-calendar/status">
+        <h2>Connection status</h2>
+        <div className="json-output">Loading Calendar status...</div>
+      </section>
+      <section className="panel">
+        <div className="heading">
+          <div>
+            <p className="eyebrow">Upcoming</p>
+            <h2>Next 7 days</h2>
+          </div>
+          <button id="importCalendarEvents">Import as meeting notes</button>
+        </div>
+        <div data-load="/api/integrations/google-calendar/events?days=7">
+          <div className="json-output">Loading Calendar events...</div>
+        </div>
+        <pre id="calendarImportResult" className="json-output"></pre>
+      </section>
     </section>
   );
 }
@@ -1211,6 +1245,8 @@ function renderData(endpoint, json) {
   if (json.jobs) return renderJobs(json.jobs);
   if (json.settings) return renderSettings(json.settings);
   if (json.integrations || json.required_secrets) return renderIntegrations(json);
+  if (json.google_calendar) return renderGoogleCalendarStatus(json.google_calendar);
+  if (json.events) return renderGoogleCalendarEvents(json.events);
   if (json.usage) return renderUsage(json.usage);
   if (json.transcripts || endpoint.includes("storage-usage")) return renderStorage(json);
   if (json.results) return renderSearchResults(json);
@@ -1350,6 +1386,28 @@ function renderSearchResults(json) {
     td(escapeHtml(formatDate(result.meeting_datetime))) +
     td(escapeHtml(result.transcript_preview || result.parsed_notes_json || "-")) +
   '</tr>'));
+}
+
+function renderGoogleCalendarStatus(status) {
+  return '<div class="status-grid">' +
+    '<div class="status-card"><span>Status</span><strong>' + escapeHtml(status.connected ? "Connected" : "Not connected") + '</strong></div>' +
+    '<div class="status-card"><span>Account</span><strong>' + escapeHtml(status.email || "-") + '</strong></div>' +
+    '<div class="status-card"><span>Scope</span><strong>' + escapeHtml(status.scope || "calendar.readonly") + '</strong></div>' +
+    '<div class="status-card"><span>Updated</span><strong>' + escapeHtml(formatDate(status.updated_at)) + '</strong></div>' +
+  '</div>';
+}
+
+function renderGoogleCalendarEvents(events) {
+  if (!events.length) return emptyState("No upcoming Google Calendar events found.");
+  return '<div class="library-list">' + events.map((event) => '<article class="library-row">' +
+    '<div class="library-title">' +
+      '<a href="' + escapeHtml(event.htmlLink || event.hangoutLink || "#") + '">' + escapeHtml(event.summary || "Untitled event") + '</a>' +
+      '<small>' + escapeHtml((event.attendees || []).map((attendee) => attendee.email || attendee.name).filter(Boolean).slice(0, 4).join(", ") || "No attendees") + '</small>' +
+    '</div>' +
+    '<div class="library-meta"><small>Start</small><strong>' + escapeHtml(formatDate(event.start)) + '</strong></div>' +
+    '<div class="library-meta"><small>End</small><strong>' + escapeHtml(formatDate(event.end)) + '</strong></div>' +
+    '<div>' + pill(event.hangoutLink ? "Google Meet" : "Calendar") + '</div>' +
+  '</article>').join("") + '</div>';
 }
 
 function renderMeetingBundle(meeting) {
@@ -1513,6 +1571,29 @@ $("#automationForm")?.addEventListener("submit", (event) => {
   const values = Object.fromEntries(Array.from(form.elements).filter((el) => el.name).map((el) => [el.name, Boolean(el.checked)]));
   localStorage.setItem("markitomeAutomationDraft", JSON.stringify(values));
   $("#automationResult").textContent = JSON.stringify({ saved: true, scope: "browser_draft", values }, null, 2);
+});
+
+$("#importCalendarEvents")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const result = $("#calendarImportResult");
+  button.disabled = true;
+  button.textContent = "Importing...";
+  try {
+    const response = await fetch("/api/integrations/google-calendar/import-upcoming", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ days: 7 })
+    });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json?.error?.message || JSON.stringify(json));
+    result.textContent = JSON.stringify(json, null, 2);
+    button.textContent = "Imported";
+  } catch (error) {
+    result.textContent = error.message || String(error);
+    button.textContent = "Import as meeting notes";
+  } finally {
+    button.disabled = false;
+  }
 });
 
 for (const button of $$("[data-regenerate-notes]")) {
