@@ -14,8 +14,10 @@ export interface BotSessionStatus {
   botSessionId: string;
   platform: MeetingPlatform;
   status: "scheduled" | "joining" | "recording" | "leaving" | "left" | "failed";
+  externalBotId?: string | null;
   recordingR2Key?: string | null;
   errorMessage?: string | null;
+  providerMetadata?: Record<string, unknown> | null;
 }
 
 export interface BotProvider {

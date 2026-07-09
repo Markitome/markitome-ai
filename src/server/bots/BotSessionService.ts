@@ -7,13 +7,15 @@ import { TeamsBotProvider } from "./TeamsBotProvider";
 import { ZoomBotProvider } from "./ZoomBotProvider";
 
 export class BotSessionService {
-  private readonly providers = new Map<MeetingPlatform, BotProvider>([
-    ["google_meet", new GoogleMeetBotProvider()],
-    ["zoom", new ZoomBotProvider()],
-    ["microsoft_teams", new TeamsBotProvider()]
-  ]);
+  private readonly providers: Map<MeetingPlatform, BotProvider>;
 
-  constructor(private readonly env: Env) {}
+  constructor(private readonly env: Env) {
+    this.providers = new Map<MeetingPlatform, BotProvider>([
+      ["google_meet", new GoogleMeetBotProvider(env)],
+      ["zoom", new ZoomBotProvider()],
+      ["microsoft_teams", new TeamsBotProvider()]
+    ]);
+  }
 
   async schedule(input: {
     platform: MeetingPlatform;
@@ -34,7 +36,7 @@ export class BotSessionService {
       requestedByUserId: input.requestedByUserId,
       botDisplayName: BOT_DISPLAY_NAME
     });
-    await this.updateSession(botSessionId, status.status, status.errorMessage ?? null);
+    await this.updateSession(botSessionId, status);
     return { ...status, botSessionId };
   }
 
@@ -56,14 +58,14 @@ export class BotSessionService {
       requestedByUserId: input.requestedByUserId,
       botDisplayName: BOT_DISPLAY_NAME
     });
-    await this.updateSession(botSessionId, status.status, status.errorMessage ?? null);
+    await this.updateSession(botSessionId, status);
     return { ...status, botSessionId };
   }
 
   async leave(botSessionId: string): Promise<BotSessionStatus> {
     const session = await this.getSession(botSessionId);
     const provider = this.getProvider(session.platform);
-    const status = await provider.leave(botSessionId);
+    const status = await provider.leave(session.externalBotId ?? botSessionId);
     await this.env.DB.prepare(
       "UPDATE bot_sessions SET status = ?, leave_time = ?, updated_at = ? WHERE id = ?"
     )
@@ -78,6 +80,7 @@ export class BotSessionService {
       botSessionId,
       platform: session.platform,
       status: session.status,
+      externalBotId: session.externalBotId,
       recordingR2Key: session.recordingR2Key,
       errorMessage: session.errorMessage
     };
@@ -121,26 +124,37 @@ export class BotSessionService {
       .run();
   }
 
-  private async updateSession(botSessionId: string, status: string, errorMessage: string | null): Promise<void> {
-    await this.env.DB.prepare("UPDATE bot_sessions SET status = ?, error_message = ?, updated_at = ? WHERE id = ?")
-      .bind(status, errorMessage, new Date().toISOString(), botSessionId)
+  private async updateSession(botSessionId: string, status: BotSessionStatus): Promise<void> {
+    await this.env.DB.prepare(
+      "UPDATE bot_sessions SET status = ?, external_bot_id = COALESCE(?, external_bot_id), provider_metadata_json = COALESCE(?, provider_metadata_json), error_message = ?, updated_at = ? WHERE id = ?"
+    )
+      .bind(
+        status.status,
+        status.externalBotId ?? null,
+        status.providerMetadata ? JSON.stringify(status.providerMetadata) : null,
+        status.errorMessage ?? null,
+        new Date().toISOString(),
+        botSessionId
+      )
       .run();
   }
 
   private async getSession(botSessionId: string): Promise<{
     platform: MeetingPlatform;
     status: BotSessionStatus["status"];
+    externalBotId: string | null;
     recordingR2Key: string | null;
     errorMessage: string | null;
   }> {
     const session = await this.env.DB.prepare(
-      `SELECT platform, status, recording_r2_key AS recordingR2Key, error_message AS errorMessage
+      `SELECT platform, status, external_bot_id AS externalBotId, recording_r2_key AS recordingR2Key, error_message AS errorMessage
        FROM bot_sessions WHERE id = ?`
     )
       .bind(botSessionId)
       .first<{
         platform: MeetingPlatform;
         status: BotSessionStatus["status"];
+        externalBotId: string | null;
         recordingR2Key: string | null;
         errorMessage: string | null;
       }>();
