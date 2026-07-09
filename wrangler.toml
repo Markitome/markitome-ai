@@ -1,0 +1,55 @@
+name = "markitome-notetaker"
+main = "src/worker.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+routes = [
+  { pattern = "notetaker.markitome.ai", custom_domain = true }
+]
+
+[vars]
+APP_ENV = "production"
+APP_NAME = "Markitome Notetaker"
+APP_DOMAIN = "notetaker.markitome.ai"
+ALLOWED_EMAIL_DOMAIN = "markitome.com"
+CLAUDE_MODEL = "claude-opus-4-8"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "markitome-notetaker-db"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "drizzle/migrations"
+
+[[r2_buckets]]
+binding = "RECORDINGS"
+bucket_name = "markitome-notetaker-recordings"
+
+[[r2_buckets]]
+binding = "TRANSCRIPTS"
+bucket_name = "markitome-notetaker-transcripts"
+
+[[queues.producers]]
+binding = "TRANSCRIPTION_QUEUE"
+queue = "notetaker-transcription-queue"
+
+[[queues.producers]]
+binding = "AI_NOTES_QUEUE"
+queue = "notetaker-ai-notes-queue"
+
+[[queues.consumers]]
+queue = "notetaker-transcription-queue"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "notetaker-transcription-dlq"
+
+[[queues.consumers]]
+queue = "notetaker-ai-notes-queue"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "notetaker-ai-notes-dlq"
+
+[[vectorize]]
+binding = "MEETING_SEARCH"
+index_name = "notetaker-meeting-search"

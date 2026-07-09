@@ -1,23 +1,35 @@
 {
-  "name": "markitome-ai",
+  "name": "markitome-ai-notetaker",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@9.15.4",
+  "type": "module",
+  "packageManager": "npm@10.9.0",
   "scripts": {
-    "dev": "pnpm --parallel dev",
-    "build": "pnpm -r build",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
-    "db:generate": "pnpm --filter @markitome/db prisma:generate",
-    "db:migrate": "pnpm --filter @markitome/db prisma:migrate",
-    "db:studio": "pnpm --filter @markitome/db prisma:studio"
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply markitome-notetaker-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply markitome-notetaker-db --remote",
+    "db:seed": "wrangler d1 execute markitome-notetaker-db --local --file=drizzle/seed-super-admin.sql",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.60.0",
+    "drizzle-orm": "^0.44.2",
+    "hono": "^4.8.5",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "typescript": "5.7.2"
-  },
-  "pnpm": {
-    "overrides": {
-      "typescript": "5.7.2"
-    }
+    "@cloudflare/workers-types": "^4.20250709.0",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "drizzle-kit": "^0.31.4",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.24.3"
   }
 }
