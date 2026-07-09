@@ -38,8 +38,13 @@ function Shell({ user, path, children }: { user: AppUser; path: string; children
   const isSuperAdmin = user.roles.includes("super_admin");
   const navItems = [
     { href: "/dashboard", label: "Home" },
+    { href: "/today", label: "Today" },
     { href: "/library", label: "Library" },
     { href: "/recordings", label: "Recordings" },
+    { href: "/clips", label: "Clips" },
+    { href: "/ask", label: "Ask AI" },
+    { href: "/templates", label: "Templates" },
+    { href: "/automations", label: "Automations" },
     { href: "/upload", label: "Upload" },
     { href: "/screen-recording", label: "Screen recorder" },
     { href: "/action-items", label: "Action items" },
@@ -109,6 +114,7 @@ function Shell({ user, path, children }: { user: AppUser; path: string; children
             <input name="q" placeholder="Search meetings, transcripts, decisions..." />
           </form>
           <div className="quick-actions">
+            <a className="secondary" href="/meetings/new">New meeting</a>
             <a className="secondary" href="/screen-recording">Record screen</a>
             <a className="primary" href="/upload">Upload recording</a>
           </div>
@@ -132,8 +138,14 @@ function getInitials(value: string) {
 
 function selectPage(path: string, user: AppUser) {
   if (path === "/" || path === "/dashboard") return <Dashboard user={user} />;
+  if (path === "/today") return <TodayPage />;
   if (path === "/meetings" || path === "/library" || path === "/library/") return <Library title="Meeting Library" endpoint="/api/meetings" />;
+  if (path === "/meetings/new") return <NewMeetingPage />;
   if (path === "/recordings") return <Library title="My Recordings" endpoint="/api/recordings" />;
+  if (path === "/clips") return <ClipsPage />;
+  if (path === "/ask") return <AskAiPage />;
+  if (path === "/templates") return <TemplatesPage />;
+  if (path === "/automations") return <AutomationsPage />;
   if (path === "/upload") return <UploadPage />;
   if (path === "/screen-recording") return <ScreenRecorderPage />;
   if (path.startsWith("/meetings/")) return <MeetingDetail meetingId={path.split("/")[2]} />;
@@ -259,6 +271,192 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function TodayPage() {
+  return (
+    <section className="stack">
+      <div className="heading">
+        <div>
+          <p className="eyebrow">Today</p>
+          <h1>Meeting Command Center</h1>
+        </div>
+        <div className="actions">
+          <a className="primary" href="/meetings/new">Create agenda</a>
+          <a href="/ask">Ask AI</a>
+        </div>
+      </div>
+      <div className="feature-grid">
+        <article className="feature-card">
+          <span>Prep</span>
+          <h2>Pre-meeting brief</h2>
+          <p>Review agenda, participants, previous notes, open action items, and consent status before the call.</p>
+        </article>
+        <article className="feature-card">
+          <span>Run</span>
+          <h2>Collaborative notes</h2>
+          <p>Use agendas, manual notes, decisions, and action items as the live meeting workspace.</p>
+        </article>
+        <article className="feature-card">
+          <span>Follow-up</span>
+          <h2>AI recap</h2>
+          <p>Generate summaries, decisions, topics, action items, risks, blockers, and follow-up email drafts.</p>
+        </article>
+      </div>
+      <Library title="Upcoming and recent meetings" endpoint="/api/meetings" />
+    </section>
+  );
+}
+
+function NewMeetingPage() {
+  return (
+    <section className="stack">
+      <div className="heading">
+        <div>
+          <p className="eyebrow">Agenda builder</p>
+          <h1>New Meeting Note</h1>
+        </div>
+        <a className="secondary" href="/templates">Browse templates</a>
+      </div>
+      <form id="newMeetingForm" className="form">
+        <label>Meeting title<input name="title" required placeholder="Weekly growth review" /></label>
+        <label>Date/time<input name="meeting_datetime" type="datetime-local" required /></label>
+        <label>Platform<select name="platform" required>
+          <option value="google_meet">Google Meet</option>
+          <option value="zoom">Zoom</option>
+          <option value="microsoft_teams">Microsoft Teams</option>
+          <option value="other">Other</option>
+        </select></label>
+        <label>Visibility<select name="visibility">
+          <option value="private">Private</option>
+          <option value="shared">Shared</option>
+          <option value="company">Company</option>
+        </select></label>
+        <label>Meeting URL<input name="meeting_url" type="url" placeholder="https://meet.google.com/..." /></label>
+        <label>Participants<textarea name="participants" placeholder="One name or email per line" /></label>
+        <label>Agenda<textarea name="agenda" placeholder="1. Wins and blockers&#10;2. Pipeline review&#10;3. Decisions needed" /></label>
+        <label>Private/manual notes<textarea name="manual_notes" placeholder="Context, reminders, or notes to bring into the meeting" /></label>
+        <button type="submit">Create meeting note</button>
+      </form>
+      <pre id="newMeetingResult" className="json-output"></pre>
+    </section>
+  );
+}
+
+function AskAiPage() {
+  return (
+    <section className="stack">
+      <div className="heading">
+        <div>
+          <p className="eyebrow">Ask AI</p>
+          <h1>Ask Markitome</h1>
+        </div>
+      </div>
+      <section className="panel">
+        <h2>Meeting knowledge search</h2>
+        <form id="searchForm" className="ask-form">
+          <textarea name="q" placeholder="Ask about any meeting you can access. Example: What decisions did we make about Q3 pipeline?" required />
+          <button type="submit">Search meetings</button>
+        </form>
+        <div className="suggestion-row">
+          <button data-ask="Show open action items from the last 30 days">Open actions</button>
+          <button data-ask="Find risks or blockers mentioned in recent meetings">Risks and blockers</button>
+          <button data-ask="Draft follow-up points from client calls">Follow-up points</button>
+        </div>
+      </section>
+      <pre id="searchResult" className="json-output"></pre>
+    </section>
+  );
+}
+
+function TemplatesPage() {
+  const templates = [
+    ["1:1", "Wins, blockers, feedback, growth, next steps"],
+    ["Team standup", "Priorities, blockers, metrics, owners"],
+    ["Customer call", "Pain points, requirements, objections, follow-up"],
+    ["Pipeline review", "Deals, risks, next actions, forecast decisions"],
+    ["Project retro", "What worked, what did not, experiments"],
+    ["Board update", "Metrics, decisions, asks, risks"]
+  ];
+  return (
+    <section className="stack">
+      <div className="heading">
+        <div>
+          <p className="eyebrow">Templates</p>
+          <h1>Meeting Template Library</h1>
+        </div>
+        <a className="primary" href="/meetings/new">Use template</a>
+      </div>
+      <div className="feature-grid">
+        {templates.map(([title, copy]) => (
+          <article className="feature-card" key={title}>
+            <span>Template</span>
+            <h2>{title}</h2>
+            <p>{copy}</p>
+            <a href={`/meetings/new?template=${encodeURIComponent(title)}`}>Create note</a>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AutomationsPage() {
+  return (
+    <section className="stack">
+      <div className="heading">
+        <div>
+          <p className="eyebrow">Automations</p>
+          <h1>Meeting Automations</h1>
+        </div>
+      </div>
+      <div className="notice">Automation controls are consent-first. Bot recording still requires confirmed consent before joining or recording.</div>
+      <section className="panel">
+        <h2>Rules</h2>
+        <form id="automationForm" className="settings-list">
+          <label className="toggle-row"><input type="checkbox" name="auto_agenda" /> Auto-create meeting notes from calendar events</label>
+          <label className="toggle-row"><input type="checkbox" name="agenda_reminders" /> Remind participants to add agenda items before meetings</label>
+          <label className="toggle-row"><input type="checkbox" name="auto_summary" /> Generate AI recap after transcript completion</label>
+          <label className="toggle-row"><input type="checkbox" name="follow_up_email" /> Draft follow-up email after each completed meeting</label>
+          <label className="toggle-row"><input type="checkbox" name="crm_update" /> Prepare CRM update suggestions for customer calls</label>
+          <button type="submit">Save automation draft</button>
+        </form>
+        <pre id="automationResult" className="json-output"></pre>
+      </section>
+    </section>
+  );
+}
+
+function ClipsPage() {
+  return (
+    <section className="stack">
+      <div className="heading">
+        <div>
+          <p className="eyebrow">Clips</p>
+          <h1>Recordings and Shareable Moments</h1>
+        </div>
+        <a className="primary" href="/recordings">View recordings</a>
+      </div>
+      <div className="feature-grid">
+        <article className="feature-card">
+          <span>Recording library</span>
+          <h2>Centralized recordings</h2>
+          <p>Recordings are stored in R2 with role-based access, download controls, audit logs, and processing status.</p>
+        </article>
+        <article className="feature-card">
+          <span>Clips</span>
+          <h2>Clip workflow</h2>
+          <p>Create short shareable moments from recordings after transcript timestamps are available.</p>
+        </article>
+        <article className="feature-card">
+          <span>Privacy</span>
+          <h2>Consent and sharing</h2>
+          <p>Recording access follows owner, sharing, admin, and super admin permissions.</p>
+        </article>
+      </div>
+      <Library title="Recording Library" endpoint="/api/recordings" />
+    </section>
+  );
+}
+
 function Library({ title, endpoint }: { title: string; endpoint: string }) {
   return (
     <section className="stack">
@@ -361,8 +559,11 @@ function MeetingDetail({ meetingId }: { meetingId: string }) {
   return (
     <section className="stack">
       <div className="heading">
-        <p className="eyebrow">Meeting detail</p>
-        <h1>Meeting</h1>
+        <div>
+          <p className="eyebrow">Meeting workspace</p>
+          <h1>Meeting Note</h1>
+        </div>
+        <button className="secondary" data-regenerate-notes={meetingId}>Regenerate AI notes</button>
       </div>
       <section className="panel" data-load={`/api/meetings/${meetingId}`}>
         <div className="json-output">Loading meeting detail...</div>
@@ -703,6 +904,28 @@ main { width:min(1180px, calc(100% - 48px)); margin:30px auto 72px; }
 .heading h1 { margin:5px 0 0; font-size:34px; line-height:1.15; letter-spacing:0; }
 .stack { display:grid; gap:20px; }
 .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+.feature-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.feature-card {
+  display:grid;
+  gap:10px;
+  align-content:start;
+  min-height:160px;
+  padding:18px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 8px 24px rgba(52,35,91,.06);
+}
+.feature-card span {
+  color:var(--accent-2);
+  font-size:11px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.feature-card h2 { margin:0; font-size:18px; }
+.feature-card p { margin:0; color:var(--muted); line-height:1.5; }
+.feature-card a { color:var(--accent-2); font-weight:850; }
 .metric, .panel, .form, .recorder {
   background:rgba(255,255,255,.92);
   border:1px solid rgba(230,226,235,.95);
@@ -747,6 +970,54 @@ textarea { min-height:106px; resize:vertical; }
   padding:14px 16px;
   border-radius:10px;
   font-weight:750;
+}
+.meeting-hero {
+  display:grid;
+  gap:10px;
+  padding:22px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:linear-gradient(135deg, #fff, #f8f4ff);
+}
+.meeting-hero h2 { margin:0; font-size:28px; }
+.meeting-meta { display:flex; flex-wrap:wrap; gap:8px; color:var(--muted); }
+.notes-layout { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:14px; }
+.note-box {
+  min-height:150px;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+  white-space:pre-wrap;
+  line-height:1.55;
+}
+.section-list { display:grid; gap:10px; }
+.section-item {
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#fff;
+}
+.section-item strong { display:block; margin-bottom:5px; }
+.section-item p { margin:0; color:var(--muted); line-height:1.5; }
+.ask-form { display:grid; gap:12px; }
+.ask-form textarea { min-height:120px; }
+.suggestion-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.suggestion-row button, .toggle-row {
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#fff;
+  color:var(--accent-2);
+  font-size:13px;
+}
+.settings-list { display:grid; gap:12px; }
+.toggle-row {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 14px;
+  border-radius:10px;
+  color:var(--ink);
 }
 .json-output {
   white-space:pre-wrap;
@@ -850,7 +1121,9 @@ video { width:100%; max-height:420px; background:#120c20; border-radius:12px; bo
   .global-search { max-width:none; }
   main { width:min(100% - 28px, 980px); margin:22px auto 54px; }
   .grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .feature-grid { grid-template-columns:1fr; }
   .form { grid-template-columns:1fr; }
+  .notes-layout { grid-template-columns:1fr; }
   .library-row { grid-template-columns:1fr; align-items:start; }
 }
 @media (max-width: 820px) {
@@ -941,6 +1214,7 @@ function renderData(endpoint, json) {
   if (json.usage) return renderUsage(json.usage);
   if (json.transcripts || endpoint.includes("storage-usage")) return renderStorage(json);
   if (json.results) return renderSearchResults(json);
+  if (json.meeting) return renderMeetingBundle(json.meeting);
   return '<pre class="json-output">' + escapeHtml(JSON.stringify(json, null, 2)) + '</pre>';
 }
 
@@ -1078,6 +1352,56 @@ function renderSearchResults(json) {
   '</tr>'));
 }
 
+function renderMeetingBundle(meeting) {
+  const participants = meeting.participants || [];
+  const recordings = meeting.recordings || [];
+  const actions = meeting.action_items || [];
+  const decisions = meeting.decisions || [];
+  const topics = meeting.topics || [];
+  const notes = safeJson(meeting.ai_notes?.parsed_notes_json);
+  const manualNotes = meeting.manual_notes || meeting.manual_note || "";
+  const hero = '<div class="meeting-hero">' +
+    '<h2>' + escapeHtml(meeting.title || "Untitled meeting") + '</h2>' +
+    '<div class="meeting-meta">' +
+      pill(meeting.platform) + pill(meeting.source_type) + pill(meeting.processing_status) +
+      '<span>' + escapeHtml(formatDate(meeting.meeting_datetime)) + '</span>' +
+      '<span>' + escapeHtml(meeting.owner_email || "") + '</span>' +
+    '</div>' +
+  '</div>';
+  const prep = '<div class="notes-layout">' +
+    '<section><h2>Agenda</h2><div class="note-box">' + escapeHtml(meeting.agenda || "No agenda yet.") + '</div></section>' +
+    '<section><h2>Manual notes</h2><div class="note-box">' + escapeHtml(manualNotes || "No manual notes yet.") + '</div></section>' +
+  '</div>';
+  const ai = '<section><h2>AI summary</h2><div class="note-box">' + escapeHtml(notes?.summary || meeting.ai_notes?.rendered_markdown || "AI notes will appear after transcription completes.") + '</div></section>';
+  const followUp = '<section><h2>Follow-up email draft</h2><div class="note-box">' + escapeHtml(notes?.follow_up_email_draft || "No follow-up draft yet.") + '</div></section>';
+  return hero +
+    '<div class="status-grid">' +
+      '<div class="status-card"><span>Participants</span><strong>' + escapeHtml(participants.length) + '</strong></div>' +
+      '<div class="status-card"><span>Recordings</span><strong>' + escapeHtml(recordings.length) + '</strong></div>' +
+      '<div class="status-card"><span>Action items</span><strong>' + escapeHtml(actions.length) + '</strong></div>' +
+      '<div class="status-card"><span>Decisions</span><strong>' + escapeHtml(decisions.length) + '</strong></div>' +
+    '</div>' +
+    prep + ai +
+    renderSectionList("Participants", participants, (item) => escapeHtml(item.name || item.email || "Participant"), (item) => escapeHtml(item.email || "")) +
+    renderSectionList("Suggested action items", actions, (item) => escapeHtml(item.task), (item) => [item.assignee_text, item.due_date, item.priority, item.status].filter(Boolean).map(escapeHtml).join(" · ")) +
+    renderSectionList("Decisions", decisions, (item) => escapeHtml(item.decision), (item) => escapeHtml(item.owner_text || item.source_quote || "")) +
+    renderSectionList("Topic overview", topics, (item) => escapeHtml(item.topic), (item) => escapeHtml(item.summary || "")) +
+    renderSectionList("Recordings", recordings, (item) => escapeHtml(item.original_filename || item.id), (item) => [item.source_type, item.processing_status, formatBytes(item.file_size)].filter(Boolean).map(escapeHtml).join(" · ")) +
+    '<section><h2>Transcript</h2><div class="note-box">' + escapeHtml(meeting.transcript?.transcript_preview || "Transcript preview will appear after processing.") + '</div></section>' +
+    followUp;
+}
+
+function renderSectionList(title, items, titleSelector, detailSelector) {
+  if (!items?.length) return '<section><h2>' + escapeHtml(title) + '</h2>' + emptyState("Nothing here yet.") + '</section>';
+  return '<section><h2>' + escapeHtml(title) + '</h2><div class="section-list">' + items.map((item) => '<div class="section-item"><strong>' + titleSelector(item) + '</strong><p>' + detailSelector(item) + '</p></div>').join("") + '</div></section>';
+}
+
+function safeJson(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
 function parseParticipants(text) {
   return (text || "").split("\\n").map((line) => line.trim()).filter(Boolean).map((line) => line.includes("@") ? { email: line } : { name: line });
 }
@@ -1137,11 +1461,75 @@ $("#uploadForm")?.addEventListener("submit", async (event) => {
   }
 });
 
+$("#newMeetingForm")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const result = $("#newMeetingResult");
+  try {
+    const platform = form.platform.value;
+    const payload = {
+      title: form.title.value,
+      meeting_datetime: new Date(form.meeting_datetime.value).toISOString(),
+      platform,
+      source_type: platform,
+      meeting_url: form.meeting_url.value || null,
+      participants: parseParticipants(form.participants.value),
+      agenda: form.agenda.value,
+      manual_notes: form.manual_notes.value,
+      visibility: form.visibility.value
+    };
+    const response = await fetch("/api/meetings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const json = await response.json();
+    if (!response.ok) throw new Error(JSON.stringify(json));
+    result.textContent = "Meeting note created. Opening workspace...";
+    window.location.href = "/meetings/" + encodeURIComponent(json.meeting.id);
+  } catch (error) {
+    result.textContent = error.message || String(error);
+  }
+});
+
 $("#searchForm")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const response = await fetch("/api/search?q=" + encodeURIComponent(event.currentTarget.q.value));
   $("#searchResult").textContent = JSON.stringify(await response.json(), null, 2);
 });
+
+for (const button of $$("[data-ask]")) {
+  button.addEventListener("click", () => {
+    const form = $("#searchForm");
+    if (!form) return;
+    form.q.value = button.dataset.ask;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+}
+
+$("#automationForm")?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = Object.fromEntries(Array.from(form.elements).filter((el) => el.name).map((el) => [el.name, Boolean(el.checked)]));
+  localStorage.setItem("markitomeAutomationDraft", JSON.stringify(values));
+  $("#automationResult").textContent = JSON.stringify({ saved: true, scope: "browser_draft", values }, null, 2);
+});
+
+for (const button of $$("[data-regenerate-notes]")) {
+  button.addEventListener("click", async () => {
+    const meetingId = button.dataset.regenerateNotes;
+    button.disabled = true;
+    button.textContent = "Queueing...";
+    try {
+      const response = await fetch("/api/meetings/" + encodeURIComponent(meetingId) + "/regenerate-ai-notes", { method: "POST" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json?.error?.message || JSON.stringify(json));
+      button.textContent = "Queued";
+    } catch (error) {
+      button.textContent = error.message || "Failed";
+    }
+  });
+}
 
 $("#manualTranscriptForm")?.addEventListener("submit", async (event) => {
   event.preventDefault();

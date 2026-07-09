@@ -833,11 +833,12 @@ async function getMeetingBundle(env: Env, meetingId: string): Promise<unknown> {
   )
     .bind(meetingId)
     .first();
-  const [participants, recordings, transcript, notes, actions, decisions, topics] = await Promise.all([
+  const [participants, recordings, transcript, notes, manualNote, actions, decisions, topics] = await Promise.all([
     env.DB.prepare("SELECT * FROM meeting_participants WHERE meeting_id = ?").bind(meetingId).all(),
     env.DB.prepare("SELECT * FROM recordings WHERE meeting_id = ? AND deleted_at IS NULL").bind(meetingId).all(),
     env.DB.prepare("SELECT * FROM transcripts WHERE meeting_id = ? ORDER BY created_at DESC LIMIT 1").bind(meetingId).first(),
     env.DB.prepare("SELECT * FROM ai_notes WHERE meeting_id = ? ORDER BY created_at DESC LIMIT 1").bind(meetingId).first(),
+    env.DB.prepare("SELECT content FROM manual_notes WHERE meeting_id = ? ORDER BY updated_at DESC LIMIT 1").bind(meetingId).first<{ content: string }>(),
     env.DB.prepare("SELECT * FROM action_items WHERE meeting_id = ? ORDER BY created_at DESC").bind(meetingId).all(),
     env.DB.prepare("SELECT * FROM decisions WHERE meeting_id = ? ORDER BY created_at DESC").bind(meetingId).all(),
     env.DB.prepare("SELECT * FROM topics WHERE meeting_id = ? ORDER BY sort_order ASC").bind(meetingId).all()
@@ -848,6 +849,7 @@ async function getMeetingBundle(env: Env, meetingId: string): Promise<unknown> {
     recordings: recordings.results,
     transcript,
     ai_notes: notes,
+    manual_notes: manualNote?.content ?? "",
     action_items: actions.results,
     decisions: decisions.results,
     topics: topics.results
