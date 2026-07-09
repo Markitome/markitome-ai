@@ -17,7 +17,7 @@ CLAUDE_MODEL = "claude-opus-4-8"
 [[d1_databases]]
 binding = "DB"
 database_name = "markitome-notetaker-db"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "1acf868c-3cca-464c-976c-3656c4080441"
 migrations_dir = "drizzle/migrations"
 
 [[r2_buckets]]
