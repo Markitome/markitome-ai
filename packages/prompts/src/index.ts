@@ -1,10 +1,12 @@
 import type {
   BlogInput,
   ChatInput,
+  ChatMessageInput,
   EmailInput,
   ImageStudioInput,
   KnowledgeInput,
   PresentationInput,
+  ProjectFileInput,
   ProposalInput
 } from "@markitome/shared";
 import {
@@ -83,9 +85,12 @@ export function chatPrompt(input: ChatInput) {
   return [
     "You are Markitome AI, an internal assistant for marketing operations.",
     "Answer clearly, with practical next steps and references when context is provided.",
+    `Mode: ${input.mode ?? "text"}`,
     `Message: ${input.message}`,
     `Context: ${input.context}`,
     `Knowledge source: ${input.knowledgeSource}`,
+    `Recent history: ${formatChatHistory(input.history)}`,
+    `Project files: ${formatProjectFiles(input.projectFiles)}`,
     "Return only JSON with exact keys: response (string), suggestedActions (string array), sourceReferences (string array)."
   ].join("\n");
 }
@@ -155,4 +160,22 @@ export function knowledgePrompt(input: KnowledgeInput) {
     `Content: ${input.content}`,
     "Return only JSON with exact keys: indexedDocument, vectorIds, searchPreview, auditTrail."
   ].join("\n");
+}
+
+function formatProjectFiles(files: ProjectFileInput[] | undefined) {
+  const usableFiles = files?.filter((file) => file.title.trim() && file.content.trim()).slice(0, 8) ?? [];
+  if (usableFiles.length === 0) return "None";
+
+  return usableFiles
+    .map((file, index) => {
+      const content = file.content.length > 6000 ? `${file.content.slice(0, 6000)}\n[truncated]` : file.content;
+      return `File ${index + 1}: ${file.title}\n${content}`;
+    })
+    .join("\n\n---\n\n");
+}
+
+function formatChatHistory(history: ChatMessageInput[] | undefined) {
+  const items = history?.slice(-8) ?? [];
+  if (items.length === 0) return "None";
+  return items.map((item) => `${item.role}: ${item.content}`).join("\n");
 }
