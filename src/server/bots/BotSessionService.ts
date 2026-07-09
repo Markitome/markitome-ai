@@ -3,6 +3,7 @@ import { ApiError } from "../http/errors";
 import { id } from "../utils/crypto";
 import { BOT_DISPLAY_NAME, type BotProvider, type BotSessionStatus } from "./BotProvider";
 import { GoogleMeetBotProvider } from "./GoogleMeetBotProvider";
+import { ScreenAppMeetingBotProvider } from "./ScreenAppMeetingBotProvider";
 import { TeamsBotProvider } from "./TeamsBotProvider";
 import { VexaBotProvider } from "./VexaBotProvider";
 import { ZoomBotProvider } from "./ZoomBotProvider";
@@ -11,11 +12,33 @@ export class BotSessionService {
   private readonly providers: Map<MeetingPlatform, BotProvider>;
 
   constructor(private readonly env: Env) {
+    const useScreenApp = Boolean(env.SCREENAPP_BOT_API_URL && env.SCREENAPP_BOT_API_TOKEN);
     const useVexa = Boolean(env.VEXA_API_URL && env.VEXA_API_KEY);
     this.providers = new Map<MeetingPlatform, BotProvider>([
-      ["google_meet", useVexa ? new VexaBotProvider(env, "google_meet") : new GoogleMeetBotProvider(env)],
-      ["zoom", useVexa ? new VexaBotProvider(env, "zoom") : new ZoomBotProvider()],
-      ["microsoft_teams", useVexa ? new VexaBotProvider(env, "microsoft_teams") : new TeamsBotProvider()]
+      [
+        "google_meet",
+        useScreenApp
+          ? new ScreenAppMeetingBotProvider(env, "google_meet")
+          : useVexa
+            ? new VexaBotProvider(env, "google_meet")
+            : new GoogleMeetBotProvider(env)
+      ],
+      [
+        "zoom",
+        useScreenApp
+          ? new ScreenAppMeetingBotProvider(env, "zoom")
+          : useVexa
+            ? new VexaBotProvider(env, "zoom")
+            : new ZoomBotProvider()
+      ],
+      [
+        "microsoft_teams",
+        useScreenApp
+          ? new ScreenAppMeetingBotProvider(env, "microsoft_teams")
+          : useVexa
+            ? new VexaBotProvider(env, "microsoft_teams")
+            : new TeamsBotProvider()
+      ]
     ]);
   }
 
@@ -56,7 +79,8 @@ export class BotSessionService {
     const status = await provider.scheduleBotJoin(input.meetingUrl, botSessionId, input.startTime, {
       consentStatus: "confirmed",
       requestedByUserId: input.requestedByUserId,
-      botDisplayName: BOT_DISPLAY_NAME
+      botDisplayName: BOT_DISPLAY_NAME,
+      metadata: { meetingId: input.meetingId }
     });
     await this.updateSession(botSessionId, status);
     return { ...status, botSessionId };
@@ -86,7 +110,8 @@ export class BotSessionService {
     const status = await provider.joinNow(input.meetingUrl, botSessionId, {
       consentStatus: "confirmed",
       requestedByUserId: input.requestedByUserId,
-      botDisplayName: BOT_DISPLAY_NAME
+      botDisplayName: BOT_DISPLAY_NAME,
+      metadata: { meetingId: input.meetingId }
     });
     await this.updateSession(botSessionId, status);
     return { ...status, botSessionId };
@@ -164,6 +189,16 @@ export class BotSessionService {
     return null;
   }
 
+  async handleScreenAppWebhook(payload: unknown): Promise<BotSessionStatus | null> {
+    for (const provider of this.providers.values()) {
+      const status = await provider.handleWebhook(payload);
+      if (!status?.externalBotId) continue;
+      await this.updateSession(status.botSessionId, status);
+      return status;
+    }
+    return null;
+  }
+
   async runDueScheduledBots(now = new Date()): Promise<{ attempted: number; started: number; failed: number }> {
     const cutoff = new Date(now.getTime() + 2 * 60 * 1000).toISOString();
     const due = await this.env.DB.prepare(
@@ -198,7 +233,8 @@ export class BotSessionService {
       const status = await provider.joinNow(session.meetingUrl, session.id, {
         consentStatus: "confirmed",
         requestedByUserId: session.ownerUserId,
-        botDisplayName: BOT_DISPLAY_NAME
+        botDisplayName: BOT_DISPLAY_NAME,
+        metadata: { meetingId: session.meetingId }
       });
       await this.updateSession(session.id, status);
       if (status.status === "failed") failed += 1;
