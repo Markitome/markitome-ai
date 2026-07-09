@@ -2,6 +2,34 @@ export const MARKITOME_EMAIL_DOMAIN = "markitome.com";
 
 export type AppRole = "ADMIN" | "MANAGER" | "TEAM_MEMBER" | "INTERN";
 
+export type ChatMode = "text" | "image" | "video";
+
+export type ChatTextProvider = "openai" | "claude" | "compare";
+
+export type ProjectFileInput = {
+  id?: string;
+  title: string;
+  content: string;
+  source?: string;
+};
+
+export type ChatMessageInput = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatImageOptions = {
+  aspectRatio?: string;
+  imageSize?: string;
+};
+
+export type ChatVideoOptions = {
+  duration?: string;
+  resolution?: string;
+  aspectRatio?: string;
+  endpoint?: string;
+};
+
 export type ProposalInput = {
   clientName: string;
   clientWebsite: string;
@@ -48,12 +76,27 @@ export type ChatInput = {
   message: string;
   context: string;
   knowledgeSource: string;
+  mode?: ChatMode;
+  textProvider?: ChatTextProvider;
+  projectFiles?: ProjectFileInput[];
+  history?: ChatMessageInput[];
+  imageOptions?: ChatImageOptions;
+  videoOptions?: ChatVideoOptions;
 };
 
 export type ChatOutput = {
+  mode?: ChatMode;
+  provider?: string;
   response: string;
   suggestedActions: string[];
   sourceReferences: string[];
+  imageUrl?: string | null;
+  imageBase64?: string | null;
+  imageMimeType?: string | null;
+  videoUrl?: string | null;
+  requestId?: string | null;
+  status?: string | null;
+  raw?: unknown;
 };
 
 export type BlogInput = {
