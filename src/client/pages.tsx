@@ -290,6 +290,15 @@ function MeetingDetail({ meetingId }: { meetingId: string }) {
       <section className="panel" data-load={`/api/meetings/${meetingId}`}>
         <div className="json-output">Loading meeting detail...</div>
       </section>
+      <section className="panel">
+        <h2>Manual transcript</h2>
+        <form id="manualTranscriptForm" className="form" data-meeting-id={meetingId}>
+          <label>Transcript text<textarea name="transcript_text" required /></label>
+          <label>Language<input name="language" placeholder="en" /></label>
+          <button type="submit">Upload transcript and generate notes</button>
+        </form>
+        <pre id="manualTranscriptResult" className="json-output"></pre>
+      </section>
       <div className="actions">
         <a href={`/api/meetings/${meetingId}/export/markdown`}>Download Markdown</a>
         <a href={`/api/meetings/${meetingId}/export/json`}>Download JSON</a>
@@ -400,7 +409,7 @@ a { color:inherit; text-decoration:none; }
 nav { display:flex; gap:14px; flex:1; overflow:auto; }
 nav a { color:var(--muted); font-size:14px; }
 button, .primary, .secondary, .actions a { border:1px solid var(--line); background:#fff; border-radius:6px; padding:10px 14px; font-weight:650; cursor:pointer; }
-.primary, button[type=submit] { background:var(--accent); color:#fff; border-color:var(--accent); }
+.primary, .actions a.primary, button[type=submit] { background:var(--accent); color:#fff; border-color:var(--accent); }
 .secondary { color:var(--accent2); }
 main { width:min(1180px, calc(100% - 32px)); margin:28px auto 64px; }
 .auth { min-height:100vh; display:grid; place-items:center; margin:0 auto; }
@@ -503,8 +512,29 @@ $("#searchForm")?.addEventListener("submit", async (event) => {
   $("#searchResult").textContent = JSON.stringify(await response.json(), null, 2);
 });
 
+$("#manualTranscriptForm")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const result = $("#manualTranscriptResult");
+  try {
+    const response = await fetch("/api/meetings/" + encodeURIComponent(form.dataset.meetingId) + "/transcript/manual-upload", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        transcript_text: form.transcript_text.value,
+        language: form.language.value || null
+      })
+    });
+    const json = await response.json();
+    result.textContent = JSON.stringify(json, null, 2);
+  } catch (error) {
+    result.textContent = error.message || String(error);
+  }
+});
+
 let recorder, chunks = [], startedAt = 0, timerId = 0, stream;
 function setRecorderButtons(state) {
+  if (!$("#startRecording")) return;
   $("#startRecording").disabled = state !== "idle";
   $("#pauseRecording").disabled = state !== "recording";
   $("#resumeRecording").disabled = state !== "paused";

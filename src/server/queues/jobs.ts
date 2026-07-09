@@ -2,7 +2,6 @@ import type { Env } from "../../types";
 import { ClaudeNotesService } from "../ai/ClaudeNotesService";
 import { id } from "../utils/crypto";
 import { CloudflareWorkersAITranscriptionProvider } from "../transcription/CloudflareWorkersAITranscriptionProvider";
-import { ExternalSTTProvider } from "../transcription/ExternalSTTProvider";
 import type { RecordingForTranscription, TranscriptionProvider } from "../transcription/TranscriptionProvider";
 
 interface TranscriptionJob {
@@ -54,9 +53,9 @@ export async function handleQueueBatch(batch: MessageBatch<QueueJob>, env: Env):
       }
       message.ack();
     } catch (error) {
-      message.retry();
       const body = message.body;
-      await markJobFailed(env, body.jobId, error);
+      await markJobFailed(env, body, error);
+      message.retry();
     }
   }
 }
@@ -119,7 +118,7 @@ export async function processTranscriptionJob(env: Env, job: TranscriptionJob): 
       new Date().toISOString(),
       new Date().toISOString()
     ),
-    env.DB.prepare("UPDATE recordings SET processing_status = 'transcribed', updated_at = ? WHERE id = ?").bind(
+    env.DB.prepare("UPDATE recordings SET processing_status = 'transcribed', error_message = NULL, updated_at = ? WHERE id = ?").bind(
       new Date().toISOString(),
       recording.id
     ),
@@ -281,7 +280,7 @@ export async function processAiNotesJob(env: Env, job: AiNotesJob): Promise<void
 }
 
 function selectTranscriptionProvider(): TranscriptionProvider {
-  return new ExternalSTTProvider();
+  return new CloudflareWorkersAITranscriptionProvider();
 }
 
 async function markJobRunning(env: Env, jobId: string): Promise<void> {
@@ -298,9 +297,43 @@ async function markJobComplete(env: Env, jobId: string): Promise<void> {
     .run();
 }
 
-async function markJobFailed(env: Env, jobId: string, error: unknown): Promise<void> {
+async function markJobFailed(env: Env, job: QueueJob, error: unknown): Promise<void> {
   const message = error instanceof Error ? error.message : "Unknown queue error";
-  await env.DB.prepare("UPDATE processing_jobs SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?")
-    .bind(message, new Date().toISOString(), jobId)
-    .run();
+  const now = new Date().toISOString();
+  const statements: D1PreparedStatement[] = [
+    env.DB.prepare("UPDATE processing_jobs SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?").bind(
+      message,
+      now,
+      job.jobId
+    )
+  ];
+
+  if (job.type === "transcription") {
+    const recording = await env.DB.prepare("SELECT meeting_id AS meetingId FROM recordings WHERE id = ?")
+      .bind(job.recordingId)
+      .first<{ meetingId: string }>();
+    statements.push(
+      env.DB.prepare("UPDATE recordings SET processing_status = 'failed', error_message = ?, updated_at = ? WHERE id = ?").bind(
+        message,
+        now,
+        job.recordingId
+      )
+    );
+    if (recording) {
+      statements.push(
+        env.DB.prepare("UPDATE meetings SET processing_status = 'failed', updated_at = ? WHERE id = ?").bind(now, recording.meetingId)
+      );
+    }
+  } else {
+    statements.push(
+      env.DB.prepare("UPDATE ai_notes SET generation_status = 'failed', error_message = ?, updated_at = ? WHERE transcript_id = ?").bind(
+        message,
+        now,
+        job.transcriptId
+      ),
+      env.DB.prepare("UPDATE meetings SET processing_status = 'failed', updated_at = ? WHERE id = ?").bind(now, job.meetingId)
+    );
+  }
+
+  await env.DB.batch(statements);
 }

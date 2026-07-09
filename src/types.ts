@@ -24,6 +24,7 @@ export interface Env {
   DB: D1Database;
   RECORDINGS: R2Bucket;
   TRANSCRIPTS: R2Bucket;
+  AI?: Ai;
   TRANSCRIPTION_QUEUE: Queue;
   AI_NOTES_QUEUE: Queue;
   MEETING_SEARCH?: VectorizeIndex;
@@ -32,6 +33,7 @@ export interface Env {
   APP_DOMAIN: string;
   ALLOWED_EMAIL_DOMAIN: string;
   CLAUDE_MODEL?: string;
+  STT_MODEL?: string;
   ANTHROPIC_API_KEY?: string;
   SESSION_SECRET: string;
   GOOGLE_CLIENT_ID?: string;
