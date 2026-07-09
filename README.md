@@ -65,6 +65,8 @@ Required secrets:
 - `ZOOM_CLIENT_ID`
 - `ZOOM_CLIENT_SECRET`
 - `ZOOM_ACCOUNT_ID`
+- `VEXA_API_URL`
+- `VEXA_API_KEY`
 - `MEETINGBOT_API_URL`
 - `MEETINGBOT_API_KEY`
 - `WEBHOOK_SECRET`
@@ -82,6 +84,8 @@ npx wrangler secret put MICROSOFT_TENANT_ID
 npx wrangler secret put ZOOM_CLIENT_ID
 npx wrangler secret put ZOOM_CLIENT_SECRET
 npx wrangler secret put ZOOM_ACCOUNT_ID
+npx wrangler secret put VEXA_API_URL
+npx wrangler secret put VEXA_API_KEY
 npx wrangler secret put MEETINGBOT_API_URL
 npx wrangler secret put MEETINGBOT_API_KEY
 npx wrangler secret put WEBHOOK_SECRET
@@ -188,6 +192,7 @@ Required provider files:
 - `src/server/bots/GoogleMeetBotProvider.ts`
 - `src/server/bots/ZoomBotProvider.ts`
 - `src/server/bots/TeamsBotProvider.ts`
+- `src/server/bots/VexaBotProvider.ts`
 - `src/server/bots/BotSessionService.ts`
 
 The bot display name is:
@@ -196,7 +201,29 @@ The bot display name is:
 Markitome AI Notetaker - Recording
 ```
 
-Google Meet bot joining is wired to the open-source `meetingbot/meetingbot` API, not Recall.ai. MeetingBot is a separate self-hosted AWS/Docker/Terraform stack; it cannot run inside a Cloudflare Worker because the bot needs a browser/container process to join and record the meeting.
+Meeting bot joining prefers the open-source Vexa API when configured. Vexa is an Apache-2.0 self-hostable meeting bot API for Google Meet, Microsoft Teams, and Zoom. It can run as Vexa Lite in a single Docker container or as a larger Docker/Kubernetes deployment; it cannot run inside a Cloudflare Worker because the bot needs a browser/container process to join and record the meeting.
+
+Required Markitome configuration for Vexa:
+
+- `VEXA_API_URL`: base URL of Vexa, for example `https://api.cloud.vexa.ai` or your self-hosted Vexa Lite URL.
+- `VEXA_API_KEY`: Vexa API token.
+- `WEBHOOK_SECRET`: used by the Markitome Vexa webhook endpoint.
+
+Markitome sends bot creation requests to:
+
+```text
+POST {VEXA_API_URL}/bots
+```
+
+with the `X-API-Key` header. Configure Vexa webhooks to:
+
+```text
+https://notetaker.markitome.ai/api/public/bots/vexa/webhook
+```
+
+and set the Vexa webhook secret to the same value as `WEBHOOK_SECRET`. Google Meet event imports are scheduled locally by the Cloudflare Worker cron trigger and sent to Vexa shortly before the meeting starts. Hosts may still need to admit the bot from the waiting room.
+
+MeetingBot remains supported as a fallback. Google Meet bot joining can also use the open-source `meetingbot/meetingbot` API. MeetingBot is a separate self-hosted AWS/Docker/Terraform stack.
 
 Required Markitome configuration after self-hosting MeetingBot:
 
@@ -216,7 +243,7 @@ with the `x-api-key` header and a callback URL:
 https://notetaker.markitome.ai/api/public/bots/meetingbot/webhook?token={WEBHOOK_SECRET}
 ```
 
-Zoom and Microsoft Teams provider adapters remain consent-gated placeholders until the self-hosted MeetingBot payloads for those platforms are wired into their adapters. Real meeting bot joining may require Google, Zoom, and Microsoft OAuth/app approval, recording policy compliance, and tenant-level permissions.
+Real meeting bot joining may require Google, Zoom, and Microsoft OAuth/app approval, recording policy compliance, host admission, and tenant-level permissions.
 
 ## Screen Recording Fallback
 

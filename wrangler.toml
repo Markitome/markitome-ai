@@ -15,6 +15,9 @@ ALLOWED_EMAIL_DOMAIN = "markitome.com"
 CLAUDE_MODEL = "claude-opus-4-8"
 STT_MODEL = "@cf/openai/whisper-large-v3-turbo"
 
+[triggers]
+crons = ["*/2 * * * *"]
+
 [ai]
 binding = "AI"
 

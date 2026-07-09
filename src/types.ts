@@ -44,6 +44,8 @@ export interface Env {
   ZOOM_CLIENT_ID?: string;
   ZOOM_CLIENT_SECRET?: string;
   ZOOM_ACCOUNT_ID?: string;
+  VEXA_API_URL?: string;
+  VEXA_API_KEY?: string;
   MEETINGBOT_API_URL?: string;
   MEETINGBOT_API_KEY?: string;
   WEBHOOK_SECRET?: string;

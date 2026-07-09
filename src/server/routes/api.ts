@@ -1356,6 +1356,7 @@ function getSystemStatus(env: Env): {
   google_oauth_configured: boolean;
   cloudflare_workers_ai_configured: boolean;
   claude_configured: boolean;
+  vexa_provider_configured: boolean;
   meetingbot_provider_configured: boolean;
   transcription_model: string;
   claude_model: string;
@@ -1366,8 +1367,11 @@ function getSystemStatus(env: Env): {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) requiredAction.push("Configure Google OAuth secrets.");
   if (!env.AI) requiredAction.push("Configure the Cloudflare Workers AI binding.");
   if (!env.ANTHROPIC_API_KEY) requiredAction.push("Set ANTHROPIC_API_KEY with npx wrangler secret put ANTHROPIC_API_KEY.");
-  if (!env.MEETINGBOT_API_URL || !env.MEETINGBOT_API_KEY) {
-    requiredAction.push("Deploy meetingbot/meetingbot, then set MEETINGBOT_API_URL and MEETINGBOT_API_KEY in Cloudflare Workers to enable bots that join and record.");
+  if (!env.VEXA_API_URL || !env.VEXA_API_KEY) {
+    requiredAction.push("Set VEXA_API_URL and VEXA_API_KEY to enable the recommended open-source Vexa meeting bot provider.");
+  }
+  if (!env.VEXA_API_URL && (!env.MEETINGBOT_API_URL || !env.MEETINGBOT_API_KEY)) {
+    requiredAction.push("MeetingBot remains supported as a fallback, but requires MEETINGBOT_API_URL and MEETINGBOT_API_KEY.");
   }
 
   return {
@@ -1375,6 +1379,7 @@ function getSystemStatus(env: Env): {
     google_oauth_configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
     cloudflare_workers_ai_configured: Boolean(env.AI),
     claude_configured: Boolean(env.ANTHROPIC_API_KEY),
+    vexa_provider_configured: Boolean(env.VEXA_API_URL && env.VEXA_API_KEY),
     meetingbot_provider_configured: Boolean(env.MEETINGBOT_API_URL && env.MEETINGBOT_API_KEY),
     transcription_model: env.STT_MODEL || "@cf/openai/whisper-large-v3-turbo",
     claude_model: env.CLAUDE_MODEL || "claude-3-5-sonnet-latest",

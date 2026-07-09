@@ -33,6 +33,20 @@ app.post("/api/public/bots/meetingbot/webhook", async (c) => {
   return c.json({ ok: true, bot_session: botSession });
 });
 
+app.post("/api/public/bots/vexa/webhook", async (c) => {
+  const authorization = c.req.header("authorization");
+  const token = c.req.query("token") ?? c.req.header("x-webhook-secret");
+  if (
+    c.env.WEBHOOK_SECRET &&
+    token !== c.env.WEBHOOK_SECRET &&
+    authorization !== `Bearer ${c.env.WEBHOOK_SECRET}`
+  ) {
+    return c.json({ error: { code: "invalid_webhook_secret", message: "Webhook secret is invalid." } }, 403);
+  }
+  const botSession = await new BotSessionService(c.env).handleVexaWebhook(await c.req.json());
+  return c.json({ ok: true, bot_session: botSession });
+});
+
 app.route("/api/auth", authRoutes);
 app.route("/api", apiRoutes);
 
@@ -50,5 +64,8 @@ async function getOptionalUser(env: Env, cookie: string | undefined) {
 
 export default {
   fetch: app.fetch,
-  queue: handleQueueBatch as ExportedHandler<Env, QueueJob>["queue"]
+  queue: handleQueueBatch as ExportedHandler<Env, QueueJob>["queue"],
+  async scheduled(_event: ScheduledEvent, env: Env) {
+    await new BotSessionService(env).runDueScheduledBots();
+  }
 };
