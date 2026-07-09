@@ -145,6 +145,8 @@ authRoutes.get("/callback", async (c) => {
 
 authRoutes.post("/logout", (c) => {
   deleteCookie(c, sessionCookieName, { path: "/" });
+  const accept = c.req.header("accept") ?? "";
+  if (accept.includes("text/html")) return c.redirect("/login");
   return c.json({ ok: true });
 });
 

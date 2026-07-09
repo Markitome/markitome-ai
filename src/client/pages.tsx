@@ -66,7 +66,7 @@ function Shell({ user, children }: { user: AppUser; children: React.ReactNode })
 function selectPage(path: string, user: AppUser) {
   if (path === "/" || path === "/dashboard") return <Dashboard user={user} />;
   if (path === "/meetings") return <Library title="My Meetings" endpoint="/api/meetings" />;
-  if (path === "/recordings") return <Library title="My Recordings" endpoint="/api/meetings" />;
+  if (path === "/recordings") return <Library title="My Recordings" endpoint="/api/recordings" />;
   if (path === "/upload") return <UploadPage />;
   if (path === "/screen-recording") return <ScreenRecorderPage />;
   if (path.startsWith("/meetings/")) return <MeetingDetail meetingId={path.split("/")[2]} />;
@@ -380,6 +380,10 @@ function SuperAdminSettings() {
           <li>Allowed file types</li>
           <li>Maximum upload size</li>
         </ul>
+      </section>
+      <section className="panel" data-load="/api/admin/system-status">
+        <h2>Production status</h2>
+        <div className="json-output">Loading system status...</div>
       </section>
     </section>
   );

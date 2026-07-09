@@ -581,7 +581,16 @@ apiRoutes.get("/admin/dashboard", requireRoles(["admin", "super_admin"]), async 
     c.env.DB.prepare("SELECT COUNT(*) AS count, SUM(duration_seconds) AS durationSeconds FROM recordings WHERE deleted_at IS NULL").first(),
     c.env.DB.prepare("SELECT COUNT(*) AS count FROM processing_jobs WHERE status = 'failed'").first()
   ]);
-  return c.json({ total_meetings: meetings, recordings, failed_processing_jobs: failures });
+  return c.json({
+    total_meetings: meetings,
+    recordings,
+    failed_processing_jobs: failures,
+    configuration: getSystemStatus(c.env)
+  });
+});
+
+apiRoutes.get("/admin/system-status", requireRoles(["super_admin"]), async (c) => {
+  return c.json(getSystemStatus(c.env));
 });
 
 apiRoutes.get("/admin/meetings", requireRoles(["admin", "super_admin"]), async (c) => {
@@ -591,6 +600,22 @@ apiRoutes.get("/admin/meetings", requireRoles(["admin", "super_admin"]), async (
 
 apiRoutes.get("/admin/recordings", requireRoles(["admin", "super_admin"]), async (c) => {
   const recordings = await c.env.DB.prepare("SELECT * FROM recordings WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 200").all();
+  return c.json({ recordings: recordings.results });
+});
+
+apiRoutes.get("/recordings", async (c) => {
+  const user = c.get("user");
+  const filters = isAdmin(user) ? "r.deleted_at IS NULL" : "r.deleted_at IS NULL AND r.owner_user_id = ?";
+  const recordings = await c.env.DB.prepare(
+    `SELECT r.*, m.title AS meeting_title, m.meeting_datetime
+     FROM recordings r
+     INNER JOIN meetings m ON m.id = r.meeting_id
+     WHERE ${filters}
+     ORDER BY r.created_at DESC
+     LIMIT 100`
+  )
+    .bind(...(isAdmin(user) ? [] : [user.id]))
+    .all();
   return c.json({ recordings: recordings.results });
 });
 
@@ -852,4 +877,27 @@ function markdownToPdfReadyHtml(markdown: string): string {
     })
     .join("\n");
   return `<!doctype html><html><head><meta charset="utf-8"><title>Meeting Notes</title><style>body{font-family:Arial,sans-serif;line-height:1.5;max-width:760px;margin:40px auto;color:#111}h1,h2,h3{page-break-after:avoid}li{margin:4px 0}</style></head><body>${escaped}</body></html>`;
+}
+
+function getSystemStatus(env: Env): {
+  google_oauth_configured: boolean;
+  cloudflare_workers_ai_configured: boolean;
+  claude_configured: boolean;
+  transcription_model: string;
+  claude_model: string;
+  required_action: string[];
+} {
+  const requiredAction: string[] = [];
+  if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) requiredAction.push("Configure Google OAuth secrets.");
+  if (!env.AI) requiredAction.push("Configure the Cloudflare Workers AI binding.");
+  if (!env.ANTHROPIC_API_KEY) requiredAction.push("Set ANTHROPIC_API_KEY with npx wrangler secret put ANTHROPIC_API_KEY.");
+
+  return {
+    google_oauth_configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
+    cloudflare_workers_ai_configured: Boolean(env.AI),
+    claude_configured: Boolean(env.ANTHROPIC_API_KEY),
+    transcription_model: env.STT_MODEL || "@cf/openai/whisper-large-v3-turbo",
+    claude_model: env.CLAUDE_MODEL || "claude-3-5-sonnet-latest",
+    required_action: requiredAction
+  };
 }
