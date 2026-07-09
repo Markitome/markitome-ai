@@ -5,13 +5,14 @@ import { renderPage } from "./client/pages";
 import { loadUser } from "./server/auth/rbac";
 import { authRoutes } from "./server/auth/googleOAuth";
 import { sessionCookieName, verifySessionToken } from "./server/auth/session";
-import { errorBoundary } from "./server/http/errors";
+import { errorBoundary, handleError } from "./server/http/errors";
 import { apiRoutes } from "./server/routes/api";
 import { handleQueueBatch, type QueueJob } from "./server/queues/jobs";
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 app.use("*", errorBoundary);
+app.onError((error, c) => handleError(c, error));
 
 app.get("/health", (c) =>
   c.json({

@@ -1,5 +1,7 @@
 import type { Context, Next } from "hono";
-import type { Env, StructuredError } from "../../types";
+import type { AppVariables, Env, StructuredError } from "../../types";
+
+type ErrorContext = Context<{ Bindings: Env; Variables: AppVariables }>;
 
 export class ApiError extends Error {
   constructor(
@@ -12,7 +14,7 @@ export class ApiError extends Error {
   }
 }
 
-export function jsonError(c: Context<{ Bindings: Env }>, error: ApiError): Response {
+export function jsonError(c: ErrorContext, error: ApiError): Response {
   const body: StructuredError = {
     error: {
       code: error.code,
@@ -23,12 +25,32 @@ export function jsonError(c: Context<{ Bindings: Env }>, error: ApiError): Respo
   return c.json(body, error.status as never);
 }
 
-export async function errorBoundary(c: Context<{ Bindings: Env }>, next: Next): Promise<Response | void> {
+function isApiErrorLike(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError ||
+    (typeof error === "object" &&
+      error !== null &&
+      "status" in error &&
+      "code" in error &&
+      "message" in error &&
+      typeof (error as { status: unknown }).status === "number" &&
+      typeof (error as { code: unknown }).code === "string" &&
+      typeof (error as { message: unknown }).message === "string")
+  );
+}
+
+export function handleError(c: ErrorContext, error: unknown): Response {
+  if (isApiErrorLike(error)) {
+    return jsonError(c, new ApiError(error.status, error.code, error.message, error.details));
+  }
+  const message = error instanceof Error ? error.message : "Unexpected error";
+  return jsonError(c, new ApiError(500, "internal_error", message));
+}
+
+export async function errorBoundary(c: ErrorContext, next: Next): Promise<Response | void> {
   try {
-    await next();
+    return await next();
   } catch (error) {
-    if (error instanceof ApiError) return jsonError(c, error);
-    const message = error instanceof Error ? error.message : "Unexpected error";
-    return jsonError(c, new ApiError(500, "internal_error", message));
+    return handleError(c, error);
   }
 }

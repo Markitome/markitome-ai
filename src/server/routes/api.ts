@@ -961,7 +961,16 @@ async function listGoogleCalendarEvents(c: AppContext, days: number): Promise<Go
   const response = await fetch(url.toString(), {
     headers: { authorization: `Bearer ${accessToken}` }
   });
-  if (!response.ok) throw new ApiError(502, "google_calendar_events_failed", "Could not fetch Google Calendar events.");
+  if (!response.ok) {
+    const errorText = await response.text();
+    const googleError = parseGoogleApiError(errorText);
+    throw new ApiError(
+      502,
+      "google_calendar_events_failed",
+      `Could not fetch Google Calendar events. Google returned ${response.status}${googleError.message ? `: ${googleError.message}` : ""}.`,
+      { google_status: response.status, google_error: googleError.status }
+    );
+  }
   const json = (await response.json()) as {
     items?: Array<{
       id?: string;
@@ -984,6 +993,18 @@ async function listGoogleCalendarEvents(c: AppContext, days: number): Promise<Go
     hangoutLink: event.hangoutLink ?? null,
     attendees: (event.attendees ?? []).map((attendee) => ({ email: attendee.email, name: attendee.displayName }))
   }));
+}
+
+function parseGoogleApiError(text: string): { message: string | null; status: string | null } {
+  try {
+    const parsed = JSON.parse(text) as { error?: { message?: string; status?: string } };
+    return {
+      message: parsed.error?.message ?? null,
+      status: parsed.error?.status ?? null
+    };
+  } catch {
+    return { message: text.slice(0, 180) || null, status: null };
+  }
 }
 
 async function getValidGoogleCalendarAccessToken(env: Env, integration: NonNullable<GoogleCalendarIntegration>): Promise<string> {
@@ -1245,6 +1266,9 @@ async function exportTranscript(c: AppContext): Promise<Response> {
 }
 
 async function createDownloadToken(env: Env, recordingId: string): Promise<string> {
+  if (!env.SESSION_SECRET) {
+    throw new ApiError(500, "session_secret_missing", "SESSION_SECRET is required to create recording download links.");
+  }
   const payload = base64UrlEncode(JSON.stringify({ recordingId, exp: Date.now() + 1000 * 60 * 5 }));
   const signature = await hmacSha256(env.SESSION_SECRET, payload);
   return `${payload}.${signature}`;
@@ -1252,6 +1276,7 @@ async function createDownloadToken(env: Env, recordingId: string): Promise<strin
 
 async function verifyDownloadToken(env: Env, recordingId: string, token: string | undefined): Promise<boolean> {
   if (!token) return false;
+  if (!env.SESSION_SECRET) return false;
   const [payload, signature] = token.split(".");
   if (!payload || !signature) return false;
   const expected = await hmacSha256(env.SESSION_SECRET, payload);
@@ -1282,6 +1307,7 @@ function markdownToPdfReadyHtml(markdown: string): string {
 }
 
 function getSystemStatus(env: Env): {
+  session_secret_configured: boolean;
   google_oauth_configured: boolean;
   cloudflare_workers_ai_configured: boolean;
   claude_configured: boolean;
@@ -1290,11 +1316,13 @@ function getSystemStatus(env: Env): {
   required_action: string[];
 } {
   const requiredAction: string[] = [];
+  if (!env.SESSION_SECRET) requiredAction.push("Set SESSION_SECRET with npx wrangler secret put SESSION_SECRET.");
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) requiredAction.push("Configure Google OAuth secrets.");
   if (!env.AI) requiredAction.push("Configure the Cloudflare Workers AI binding.");
   if (!env.ANTHROPIC_API_KEY) requiredAction.push("Set ANTHROPIC_API_KEY with npx wrangler secret put ANTHROPIC_API_KEY.");
 
   return {
+    session_secret_configured: Boolean(env.SESSION_SECRET),
     google_oauth_configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
     cloudflare_workers_ai_configured: Boolean(env.AI),
     claude_configured: Boolean(env.ANTHROPIC_API_KEY),

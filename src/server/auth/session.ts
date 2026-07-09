@@ -1,4 +1,5 @@
 import type { AppUser, Env } from "../../types";
+import { ApiError } from "../http/errors";
 import { base64UrlDecode, base64UrlEncode, hmacSha256, timingSafeEqual } from "../utils/crypto";
 
 interface SessionPayload {
@@ -10,6 +11,9 @@ interface SessionPayload {
 export const sessionCookieName = "mt_notetaker_session";
 
 export async function createSessionToken(env: Env, user: AppUser): Promise<string> {
+  if (!env.SESSION_SECRET) {
+    throw new ApiError(500, "session_secret_missing", "SESSION_SECRET is required to create authenticated sessions.");
+  }
   const payload: SessionPayload = {
     userId: user.id,
     email: user.email,
@@ -22,6 +26,7 @@ export async function createSessionToken(env: Env, user: AppUser): Promise<strin
 
 export async function verifySessionToken(env: Env, token: string | undefined): Promise<SessionPayload | null> {
   if (!token) return null;
+  if (!env.SESSION_SECRET) return null;
   const [encodedPayload, signature] = token.split(".");
   if (!encodedPayload || !signature) return null;
   const expected = await hmacSha256(env.SESSION_SECRET, encodedPayload);
