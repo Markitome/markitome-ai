@@ -52,6 +52,28 @@ type ProviderTextResult = {
   raw?: unknown;
 };
 
+type ImageGenerationResult = {
+  imageUrl: string | null;
+  imageBase64: string | null;
+  mimeType: string;
+  model: string;
+  provider: string;
+  placeholder?: boolean;
+  prompt?: string;
+  message?: string;
+  raw?: unknown;
+};
+
+type VideoGenerationResult = {
+  provider: string;
+  videoUrl: string | null;
+  requestId: string | null;
+  status: string | null;
+  placeholder?: boolean;
+  message?: string;
+  raw?: unknown;
+};
+
 export type ModelTask = "text" | "structured" | "image" | "embedding";
 
 export function routeModel(task: ModelTask) {
@@ -138,7 +160,7 @@ export async function generateStructuredOutput<T>(prompt: string): Promise<T> {
   return JSON.parse(extractJson(text)) as T;
 }
 
-export async function generateImage(prompt: string, options: ChatImageOptions = {}) {
+export async function generateImage(prompt: string, options: ChatImageOptions = {}): Promise<ImageGenerationResult> {
   const apiKey = process.env.GEMINI_API_KEY ?? process.env.NANO_BANANA_API_KEY;
   const model = process.env.NANO_BANANA_IMAGE_MODEL ?? DEFAULT_NANO_BANANA_MODEL;
   const mimeType = "image/png";
@@ -191,6 +213,7 @@ export async function generateImage(prompt: string, options: ChatImageOptions = 
     mimeType: outputMimeType,
     model,
     provider: "gemini-nano-banana",
+    placeholder: false,
     prompt,
     raw: payload
   };
@@ -354,7 +377,7 @@ async function generateChatImage(input: ChatInput): Promise<ChatOutput> {
     return {
       mode: "image",
       provider: result.provider,
-      response: result.placeholder ? result.message : "Image generated.",
+      response: result.placeholder ? result.message ?? "Image provider is not configured." : "Image generated.",
       suggestedActions: result.placeholder ? ["Set GEMINI_API_KEY in Cloudflare secrets"] : ["Download the image", "Generate a variation", "Save the prompt in project files"],
       sourceReferences: buildSourceReferences(input),
       imageUrl: result.imageUrl,
@@ -381,7 +404,7 @@ async function generateChatVideo(input: ChatInput): Promise<ChatOutput> {
       mode: "video",
       provider: result.provider,
       response: result.placeholder
-        ? result.message
+        ? result.message ?? "Video provider is not configured."
         : result.videoUrl
           ? "Video generated."
           : "Video generation was submitted and is still processing.",
@@ -546,7 +569,7 @@ async function callCloudflareText(prompt: string, system: string): Promise<Provi
   };
 }
 
-async function generateVideo(prompt: string, options: ChatVideoOptions = {}) {
+async function generateVideo(prompt: string, options: ChatVideoOptions = {}): Promise<VideoGenerationResult> {
   const apiKey = process.env.FAL_KEY ?? process.env.SEEDANCE_API_KEY;
   const endpoint = cleanEndpoint(options.endpoint ?? process.env.SEEDANCE_ENDPOINT ?? DEFAULT_SEEDANCE_ENDPOINT);
 
@@ -590,6 +613,7 @@ async function generateVideo(prompt: string, options: ChatVideoOptions = {}) {
       videoUrl: immediateVideoUrl,
       requestId: requestId ?? null,
       status: immediateVideoUrl ? "COMPLETED" : "SUBMITTED",
+      placeholder: false,
       raw: submitPayload
     };
   }
@@ -620,6 +644,7 @@ async function generateVideo(prompt: string, options: ChatVideoOptions = {}) {
         videoUrl: extractVideoUrl(resultPayload),
         requestId,
         status,
+        placeholder: false,
         raw: resultPayload
       };
     }
@@ -630,6 +655,7 @@ async function generateVideo(prompt: string, options: ChatVideoOptions = {}) {
     videoUrl: null,
     requestId,
     status: stringValue((latestStatus as Record<string, unknown>).status) ?? "SUBMITTED",
+    placeholder: false,
     raw: latestStatus
   };
 }
