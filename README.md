@@ -65,13 +65,6 @@ Required secrets:
 - `ZOOM_CLIENT_ID`
 - `ZOOM_CLIENT_SECRET`
 - `ZOOM_ACCOUNT_ID`
-- `SCREENAPP_BOT_API_URL`
-- `SCREENAPP_BOT_API_TOKEN`
-- `VEXA_API_URL`
-- `VEXA_API_KEY`
-- `MEETINGBOT_API_URL`
-- `MEETINGBOT_API_KEY`
-- `WEBHOOK_SECRET`
 
 Set them with:
 
@@ -86,13 +79,6 @@ npx wrangler secret put MICROSOFT_TENANT_ID
 npx wrangler secret put ZOOM_CLIENT_ID
 npx wrangler secret put ZOOM_CLIENT_SECRET
 npx wrangler secret put ZOOM_ACCOUNT_ID
-npx wrangler secret put SCREENAPP_BOT_API_URL
-npx wrangler secret put SCREENAPP_BOT_API_TOKEN
-npx wrangler secret put VEXA_API_URL
-npx wrangler secret put VEXA_API_KEY
-npx wrangler secret put MEETINGBOT_API_URL
-npx wrangler secret put MEETINGBOT_API_KEY
-npx wrangler secret put WEBHOOK_SECRET
 ```
 
 ## Local Development
@@ -173,7 +159,7 @@ Consent statuses:
 
 Controls:
 
-- Bot recording cannot start unless `consent_status = confirmed`.
+- Recording cannot start unless the employee confirms consent in the browser.
 - Screen recording requires a consent confirmation checkbox.
 - Uploads require consent confirmation unless imported historically by an admin.
 - Consent confirmations are stored with actor and timestamp where recordings are created.
@@ -188,73 +174,9 @@ The super admin settings page is prepared for:
 - Allowed file types
 - Maximum upload size
 
-## Bot Integration Notes
+## Cloudflare-Native Recording
 
-Required provider files:
-
-- `src/server/bots/BotProvider.ts`
-- `src/server/bots/GoogleMeetBotProvider.ts`
-- `src/server/bots/ZoomBotProvider.ts`
-- `src/server/bots/TeamsBotProvider.ts`
-- `src/server/bots/ScreenAppMeetingBotProvider.ts`
-- `src/server/bots/VexaBotProvider.ts`
-- `src/server/bots/BotSessionService.ts`
-
-The bot display name is:
-
-```text
-Markitome AI Notetaker - Recording
-```
-
-Meeting bot joining prefers the free MIT-licensed `screenappai/meeting-bot` service when configured. It is a Dockerized open-source Playwright bot that joins and records Google Meet, Microsoft Teams, and Zoom meetings. It cannot run inside a Cloudflare Worker because the bot needs a real browser/container process, virtual display, and media capture.
-
-Required Markitome configuration for `screenappai/meeting-bot`:
-
-- `SCREENAPP_BOT_API_URL`: base URL of your self-hosted bot service.
-- `SCREENAPP_BOT_API_TOKEN`: token passed to the bot service as `bearerToken`.
-- `WEBHOOK_SECRET`: used for Markitome webhook verification and ScreenApp HMAC signing.
-
-Markitome sends bot creation requests to:
-
-```text
-POST {SCREENAPP_BOT_API_URL}/google/join
-POST {SCREENAPP_BOT_API_URL}/microsoft/join
-POST {SCREENAPP_BOT_API_URL}/zoom/join
-```
-
-Configure `screenappai/meeting-bot` webhook environment variables:
-
-```text
-NOTIFY_WEBHOOK_ENABLED=true
-NOTIFY_WEBHOOK_URL=https://notetaker.markitome.ai/api/public/bots/screenapp/webhook
-NOTIFY_WEBHOOK_SECRET={WEBHOOK_SECRET}
-```
-
-Google Meet event imports are scheduled locally by the Cloudflare Worker cron trigger and sent to the bot shortly before the meeting starts. Hosts may still need to admit the bot from the waiting room. For Google Meet calls that require sign-in, run ScreenApp's Chrome sidecar with a signed-in Google profile as documented by that project.
-
-Self-hosted Vexa and MeetingBot remain optional open-source fallbacks, but do not use hosted Vexa if the requirement is free/open-source only.
-
-Required Markitome configuration after self-hosting MeetingBot:
-
-- `MEETINGBOT_API_URL`: base URL of your deployed MeetingBot server, for example `https://bots.example.com`
-- `MEETINGBOT_API_KEY`: API key generated in the MeetingBot dashboard
-- `WEBHOOK_SECRET`: used in the Markitome callback URL sent to MeetingBot
-
-Markitome sends Google Meet bot creation requests to:
-
-```text
-POST {MEETINGBOT_API_URL}/api/bots
-```
-
-with the `x-api-key` header and a callback URL:
-
-```text
-https://notetaker.markitome.ai/api/public/bots/meetingbot/webhook?token={WEBHOOK_SECRET}
-```
-
-Real meeting bot joining may require Google, Zoom, and Microsoft OAuth/app approval, recording policy compliance, host admission, and tenant-level permissions.
-
-## Screen Recording Fallback
+The app does not run meeting bots or silently join calls. A true Google Meet, Zoom, or Teams participant bot requires a long-running browser with media capture, which is outside the Cloudflare Worker runtime. The supported capture path is employee-initiated browser recording.
 
 The `/screen-recording` page uses:
 
@@ -267,6 +189,8 @@ The `/screen-recording` page uses:
 - Upload to R2 through the same upload and queue pipeline
 
 Users must confirm consent before recording starts.
+
+This works on the current Cloudflare setup because the browser performs media capture and the Worker handles authentication, R2 uploads, D1 metadata, Queues, transcription, Claude notes, exports, search, and audit logging.
 
 ## Uploads
 

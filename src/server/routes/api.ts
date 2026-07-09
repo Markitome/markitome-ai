@@ -1,8 +1,7 @@
 import { Hono, type Context } from "hono";
 import { setCookie } from "hono/cookie";
 import { z } from "zod";
-import type { AppVariables, Env, MeetingPlatform } from "../../types";
-import { BotSessionService } from "../bots/BotSessionService";
+import type { AppVariables, Env } from "../../types";
 import { requireAuth, requireRoles, assertCanAccessMeeting, isAdmin } from "../auth/rbac";
 import { ApiError } from "../http/errors";
 import { parseJson, parseQuery } from "../http/validation";
@@ -514,71 +513,6 @@ apiRoutes.get("/meetings/:id/export/transcript", async (c) => exportTranscript(c
 apiRoutes.get("/meetings/:id/export/pdf-ready-html", async (c) => exportNotes(c, "pdf_ready_html"));
 apiRoutes.get("/meetings/:id/export/google-docs-text", async (c) => exportNotes(c, "google_docs_text"));
 
-apiRoutes.post("/bots/schedule", async (c) => {
-  const input = await parseJson(
-    c,
-    z.object({
-      platform: z.enum(["google_meet", "zoom", "microsoft_teams"]),
-      meeting_url: z.string().url(),
-      meeting_id: z.string(),
-      start_time: z.string(),
-      consent_status: consentStatusSchema
-    })
-  );
-  await assertCanAccessMeeting(c, input.meeting_id);
-  const result = await new BotSessionService(c.env).schedule({
-    platform: input.platform,
-    meetingUrl: input.meeting_url,
-    meetingId: input.meeting_id,
-    startTime: input.start_time,
-    consentStatus: input.consent_status,
-    requestedByUserId: c.get("user").id
-  });
-  await writeAuditLog(c, { action: "bot_join", targetType: "meeting", targetId: input.meeting_id });
-  return c.json({ bot_session: result }, 201);
-});
-
-apiRoutes.post("/bots/join-now", async (c) => {
-  const input = await parseJson(
-    c,
-    z.object({
-      platform: z.enum(["google_meet", "zoom", "microsoft_teams"]),
-      meeting_url: z.string().url(),
-      meeting_id: z.string(),
-      consent_status: consentStatusSchema
-    })
-  );
-  await assertCanAccessMeeting(c, input.meeting_id);
-  const result = await new BotSessionService(c.env).joinNow({
-    platform: input.platform,
-    meetingUrl: input.meeting_url,
-    meetingId: input.meeting_id,
-    consentStatus: input.consent_status,
-    requestedByUserId: c.get("user").id
-  });
-  await writeAuditLog(c, { action: "bot_join", targetType: "meeting", targetId: input.meeting_id });
-  return c.json({ bot_session: result }, 201);
-});
-
-apiRoutes.post("/bots/:id/leave", async (c) => {
-  const result = await new BotSessionService(c.env).leave(c.req.param("id"));
-  await writeAuditLog(c, { action: "bot_leave", targetType: "bot_session", targetId: c.req.param("id") });
-  return c.json({ bot_session: result });
-});
-
-apiRoutes.get("/bots/:id/status", async (c) => {
-  const result = await new BotSessionService(c.env).getStatus(c.req.param("id"));
-  return c.json({ bot_session: result });
-});
-
-apiRoutes.post("/bots/webhook/:platform", async (c) => {
-  if (c.env.WEBHOOK_SECRET && c.req.header("x-webhook-secret") !== c.env.WEBHOOK_SECRET) {
-    throw new ApiError(403, "invalid_webhook_secret", "Webhook secret is invalid.");
-  }
-  const result = await new BotSessionService(c.env).handleWebhook(c.req.param("platform") as MeetingPlatform, await c.req.json());
-  return c.json({ ok: true, bot_session: result });
-});
-
 apiRoutes.get("/integrations/google-calendar/connect", async (c) => {
   if (!c.env.GOOGLE_CLIENT_ID) return c.redirect("/setup-required?missing=GOOGLE_CLIENT_ID");
   const state = crypto.randomUUID();
@@ -623,17 +557,11 @@ apiRoutes.post("/integrations/google-calendar/import-upcoming", async (c) => {
   const input = await parseJson(
     c,
     z.object({
-      days: z.number().int().min(1).max(30).optional().default(7),
-      schedule_bots: z.boolean().optional().default(false),
-      consent_status: consentStatusSchema.optional().default("pending")
+      days: z.number().int().min(1).max(30).optional().default(7)
     })
   );
-  if (input.schedule_bots && input.consent_status !== "confirmed") {
-    throw new ApiError(400, "consent_required", "Confirmed recording consent is required before scheduling notetaker bots.");
-  }
   const events = await listGoogleCalendarEvents(c, input.days);
-  const imported: Array<{ id: string; title: string; calendar_event_id: string; meeting_url: string | null; bot_session?: unknown }> = [];
-  const skipped: Array<{ calendar_event_id: string; title: string; reason: string }> = [];
+  const imported: Array<{ id: string; title: string; calendar_event_id: string; meeting_url: string | null }> = [];
   for (const event of events) {
     if (!event.id || !event.summary || !event.start) continue;
     const meetingUrl = event.meetingUrl ?? event.hangoutLink ?? null;
@@ -657,35 +585,10 @@ apiRoutes.post("/integrations/google-calendar/import-upcoming", async (c) => {
       });
       existing = { id: meeting.id, title: meeting.title };
     }
-    let botSession: unknown;
-    if (input.schedule_bots) {
-      if (!meetingUrl) {
-        skipped.push({ calendar_event_id: event.id, title: event.summary, reason: "No Google Meet URL was available on the calendar event." });
-      } else {
-        const existingBot = await c.env.DB.prepare(
-          "SELECT id FROM bot_sessions WHERE meeting_id = ? AND status IN ('scheduled', 'joining', 'recording') ORDER BY created_at DESC LIMIT 1"
-        )
-          .bind(existing.id)
-          .first<{ id: string }>();
-        if (existingBot) {
-          skipped.push({ calendar_event_id: event.id, title: event.summary, reason: "A bot session is already scheduled or active for this meeting." });
-        } else {
-          botSession = await new BotSessionService(c.env).schedule({
-            platform: "google_meet",
-            meetingUrl,
-            meetingId: existing.id,
-            startTime: event.start,
-            consentStatus: "confirmed",
-            requestedByUserId: c.get("user").id
-          });
-          await writeAuditLog(c, { action: "bot_join", targetType: "meeting", targetId: existing.id, metadata: { source: "google_calendar_import", calendar_event_id: event.id } });
-        }
-      }
-    }
-    imported.push({ id: existing.id, title: existing.title, calendar_event_id: event.id, meeting_url: meetingUrl, bot_session: botSession });
+    imported.push({ id: existing.id, title: existing.title, calendar_event_id: event.id, meeting_url: meetingUrl });
   }
   await writeAuditLog(c, { action: "integration_change", targetType: "integration", targetId: "google_calendar", metadata: { imported: imported.length } });
-  return c.json({ imported, skipped, scanned: events.length });
+  return c.json({ imported, scanned: events.length });
 });
 
 apiRoutes.get("/admin/dashboard", requireRoles(["admin", "super_admin"]), async (c) => {
@@ -815,8 +718,7 @@ apiRoutes.get("/admin/integrations", requireRoles(["super_admin"]), async (c) =>
       google_oauth: Boolean(c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET),
       anthropic: Boolean(c.env.ANTHROPIC_API_KEY),
       microsoft: Boolean(c.env.MICROSOFT_CLIENT_ID && c.env.MICROSOFT_CLIENT_SECRET && c.env.MICROSOFT_TENANT_ID),
-      zoom: Boolean(c.env.ZOOM_CLIENT_ID && c.env.ZOOM_CLIENT_SECRET && c.env.ZOOM_ACCOUNT_ID),
-      webhook_secret: Boolean(c.env.WEBHOOK_SECRET)
+      zoom: Boolean(c.env.ZOOM_CLIENT_ID && c.env.ZOOM_CLIENT_SECRET && c.env.ZOOM_ACCOUNT_ID)
     }
   });
 });
@@ -1356,9 +1258,6 @@ function getSystemStatus(env: Env): {
   google_oauth_configured: boolean;
   cloudflare_workers_ai_configured: boolean;
   claude_configured: boolean;
-  screenapp_bot_provider_configured: boolean;
-  vexa_provider_configured: boolean;
-  meetingbot_provider_configured: boolean;
   transcription_model: string;
   claude_model: string;
   required_action: string[];
@@ -1368,21 +1267,12 @@ function getSystemStatus(env: Env): {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) requiredAction.push("Configure Google OAuth secrets.");
   if (!env.AI) requiredAction.push("Configure the Cloudflare Workers AI binding.");
   if (!env.ANTHROPIC_API_KEY) requiredAction.push("Set ANTHROPIC_API_KEY with npx wrangler secret put ANTHROPIC_API_KEY.");
-  if (!env.SCREENAPP_BOT_API_URL || !env.SCREENAPP_BOT_API_TOKEN) {
-    requiredAction.push("Deploy the free MIT-licensed screenappai/meeting-bot service, then set SCREENAPP_BOT_API_URL and SCREENAPP_BOT_API_TOKEN.");
-  }
-  if (!env.SCREENAPP_BOT_API_URL && !env.VEXA_API_URL && (!env.MEETINGBOT_API_URL || !env.MEETINGBOT_API_KEY)) {
-    requiredAction.push("Optional self-hosted Vexa and MeetingBot fallbacks require their own API URL/key secrets.");
-  }
 
   return {
     session_secret_configured: Boolean(env.SESSION_SECRET),
     google_oauth_configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
     cloudflare_workers_ai_configured: Boolean(env.AI),
     claude_configured: Boolean(env.ANTHROPIC_API_KEY),
-    screenapp_bot_provider_configured: Boolean(env.SCREENAPP_BOT_API_URL && env.SCREENAPP_BOT_API_TOKEN),
-    vexa_provider_configured: Boolean(env.VEXA_API_URL && env.VEXA_API_KEY),
-    meetingbot_provider_configured: Boolean(env.MEETINGBOT_API_URL && env.MEETINGBOT_API_KEY),
     transcription_model: env.STT_MODEL || "@cf/openai/whisper-large-v3-turbo",
     claude_model: env.CLAUDE_MODEL || "claude-3-5-sonnet-latest",
     required_action: requiredAction

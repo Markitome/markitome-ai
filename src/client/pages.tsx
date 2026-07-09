@@ -188,7 +188,7 @@ function Dashboard({ user }: { user: AppUser }) {
       </div>
       <div className="featureGrid">
         <Feature title="Prepare" label="Before meetings" text="Create collaborative agendas, add context, and review participant notes before the call." href="/today" />
-        <Feature title="Capture" label="During meetings" text="Upload recordings, use the screen recorder, or invite the recording bot where platform policy allows." href="/upload" />
+        <Feature title="Capture" label="During meetings" text="Record a browser tab, window, or screen with consent, then process the file through Cloudflare storage, queues, transcription, and AI notes." href="/screen-recording" />
         <Feature title="Follow up" label="After meetings" text="Review AI summaries, decisions, tasks, topics, transcript previews, and draft emails." href="/library" />
       </div>
       {isAdmin ? <section className="card" data-load="/api/admin/dashboard"><h2>Admin overview</h2><div className="loading">Loading admin metrics...</div></section> : null}
@@ -217,8 +217,8 @@ function CalendarPage() {
       <div className="notice">Uses Google Calendar read-only access. Markitome imports selected events as meeting notes and does not edit your calendar.</div>
       <section className="card" data-load="/api/integrations/google-calendar/status"><h2>Connection</h2><div className="loading">Loading status...</div></section>
       <section className="card">
-        <div className="cardHeader"><div><p className="eyebrow">Upcoming</p><h2>Next 7 days</h2></div><div className="actionRow"><button id="importCalendarEvents">Import as meeting notes</button><button id="scheduleCalendarBots">Import and schedule notetaker</button></div></div>
-        <label className="check"><input id="calendarBotConsent" type="checkbox" /> I confirm recording consent has been obtained for scheduled notetaker bots.</label>
+        <div className="cardHeader"><div><p className="eyebrow">Upcoming</p><h2>Next 7 days</h2></div><div className="actionRow"><button id="importCalendarEvents">Import as meeting notes</button><a className="buttonPrimary" href="/screen-recording">Start recorder</a></div></div>
+        <div className="notice">Cloudflare-native capture uses your browser's screen or tab recorder. The app does not silently join meetings or run external meeting bots.</div>
         <div data-load="/api/integrations/google-calendar/events?days=7"><div className="loading">Loading calendar events...</div></div>
         <pre id="calendarImportResult" className="result"></pre>
       </section>
@@ -319,7 +319,7 @@ function AutomationsPage() {
   return (
     <section className="stack">
       <PageHeader eyebrow="Automations" title="Meeting Automations" />
-      <div className="notice">Automation controls are consent-first. Recording bots still require confirmed consent before joining or recording.</div>
+      <div className="notice">Automation controls are consent-first. Calendar events can create meeting notes; recording starts only from the employee's browser after consent confirmation.</div>
       <section className="card">
         <form id="automationForm" className="settingsList">
           <label><input type="checkbox" name="auto_agenda" /> Auto-create notes from calendar events</label>
@@ -532,7 +532,7 @@ function renderDashboard(json) {
 }
 
 function renderSystemStatus(json) {
-  const checks = [["Google OAuth", json.google_oauth_configured], ["Workers AI", json.cloudflare_workers_ai_configured], ["Claude API", json.claude_configured], ["ScreenApp OSS Bot", json.screenapp_bot_provider_configured], ["Self-hosted Vexa fallback", json.vexa_provider_configured], ["MeetingBot fallback", json.meetingbot_provider_configured]];
+  const checks = [["Google OAuth", json.google_oauth_configured], ["Workers AI", json.cloudflare_workers_ai_configured], ["Claude API", json.claude_configured], ["Cloudflare recorder", true]];
   return '<div class="statusGrid">' + checks.map(([label, ok]) => '<div class="statusCard"><span>' + escapeHtml(label) + '</span><strong>' + (ok ? "Configured" : "Missing") + '</strong></div>').join("") + '</div>' + (json.required_action?.length ? '<div class="notice">' + json.required_action.map(escapeHtml).join("<br>") + '</div>' : "");
 }
 
@@ -684,29 +684,24 @@ $("#automationForm")?.addEventListener("submit", (event) => {
   $("#automationResult").textContent = JSON.stringify({ saved: true, scope: "browser_draft", values }, null, 2);
 });
 
-async function importCalendarEvents(button, scheduleBots) {
+async function importCalendarEvents(button) {
   const result = $("#calendarImportResult");
-  if (scheduleBots && !$("#calendarBotConsent")?.checked) {
-    result.textContent = "Confirmed recording consent is required before scheduling notetaker bots.";
-    return;
-  }
   button.disabled = true;
   const originalText = button.textContent;
-  button.textContent = scheduleBots ? "Scheduling..." : "Importing...";
+  button.textContent = "Importing...";
   try {
-    const response = await fetch("/api/integrations/google-calendar/import-upcoming", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days: 7, schedule_bots: scheduleBots, consent_status: scheduleBots ? "confirmed" : "pending" }) });
+    const response = await fetch("/api/integrations/google-calendar/import-upcoming", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days: 7 }) });
     const json = await readApiResponse(response);
     if (!response.ok) throw new Error(json?.error?.message || JSON.stringify(json));
     result.textContent = JSON.stringify(json, null, 2);
-    button.textContent = scheduleBots ? "Scheduled" : "Imported";
+    button.textContent = "Imported";
   } catch (error) {
     result.textContent = error.message || String(error);
     button.textContent = originalText;
   } finally { button.disabled = false; }
 }
 
-$("#importCalendarEvents")?.addEventListener("click", (event) => importCalendarEvents(event.currentTarget, false));
-$("#scheduleCalendarBots")?.addEventListener("click", (event) => importCalendarEvents(event.currentTarget, true));
+$("#importCalendarEvents")?.addEventListener("click", (event) => importCalendarEvents(event.currentTarget));
 
 for (const button of $$("[data-regenerate-notes]")) {
   button.addEventListener("click", async () => {
