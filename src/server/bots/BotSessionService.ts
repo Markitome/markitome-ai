@@ -91,6 +91,23 @@ export class BotSessionService {
     return provider.handleWebhook(payload);
   }
 
+  async handleMeetingBotWebhook(payload: unknown): Promise<BotSessionStatus | null> {
+    const status = await this.providers.get("google_meet")?.handleWebhook(payload);
+    if (!status?.externalBotId) return status ?? null;
+    await this.env.DB.prepare(
+      "UPDATE bot_sessions SET status = ?, recording_r2_key = COALESCE(?, recording_r2_key), provider_metadata_json = COALESCE(?, provider_metadata_json), updated_at = ? WHERE external_bot_id = ?"
+    )
+      .bind(
+        status.status,
+        status.recordingR2Key ?? null,
+        status.providerMetadata ? JSON.stringify(status.providerMetadata) : null,
+        new Date().toISOString(),
+        status.externalBotId
+      )
+      .run();
+    return status;
+  }
+
   private getProvider(platform: MeetingPlatform): BotProvider {
     const provider = this.providers.get(platform);
     if (!provider) throw new ApiError(400, "unsupported_bot_platform", `No bot provider is configured for ${platform}.`);

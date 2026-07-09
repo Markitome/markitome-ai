@@ -65,6 +65,8 @@ Required secrets:
 - `ZOOM_CLIENT_ID`
 - `ZOOM_CLIENT_SECRET`
 - `ZOOM_ACCOUNT_ID`
+- `MEETINGBOT_API_URL`
+- `MEETINGBOT_API_KEY`
 - `WEBHOOK_SECRET`
 
 Set them with:
@@ -80,6 +82,8 @@ npx wrangler secret put MICROSOFT_TENANT_ID
 npx wrangler secret put ZOOM_CLIENT_ID
 npx wrangler secret put ZOOM_CLIENT_SECRET
 npx wrangler secret put ZOOM_ACCOUNT_ID
+npx wrangler secret put MEETINGBOT_API_URL
+npx wrangler secret put MEETINGBOT_API_KEY
 npx wrangler secret put WEBHOOK_SECRET
 ```
 
@@ -192,7 +196,27 @@ The bot display name is:
 Markitome AI Notetaker - Recording
 ```
 
-The current providers are consent-gated production placeholders. Real meeting bot joining may require Google, Zoom, and Microsoft OAuth/app approval, meeting SDK approval, recording policy compliance, and tenant-level permissions. Provider-specific logic must stay inside provider adapters rather than the core meeting module.
+Google Meet bot joining is wired to the open-source `meetingbot/meetingbot` API, not Recall.ai. MeetingBot is a separate self-hosted AWS/Docker/Terraform stack; it cannot run inside a Cloudflare Worker because the bot needs a browser/container process to join and record the meeting.
+
+Required Markitome configuration after self-hosting MeetingBot:
+
+- `MEETINGBOT_API_URL`: base URL of your deployed MeetingBot server, for example `https://bots.example.com`
+- `MEETINGBOT_API_KEY`: API key generated in the MeetingBot dashboard
+- `WEBHOOK_SECRET`: used in the Markitome callback URL sent to MeetingBot
+
+Markitome sends Google Meet bot creation requests to:
+
+```text
+POST {MEETINGBOT_API_URL}/api/bots
+```
+
+with the `x-api-key` header and a callback URL:
+
+```text
+https://notetaker.markitome.ai/api/public/bots/meetingbot/webhook?token={WEBHOOK_SECRET}
+```
+
+Zoom and Microsoft Teams provider adapters remain consent-gated placeholders until the self-hosted MeetingBot payloads for those platforms are wired into their adapters. Real meeting bot joining may require Google, Zoom, and Microsoft OAuth/app approval, recording policy compliance, and tenant-level permissions.
 
 ## Screen Recording Fallback
 

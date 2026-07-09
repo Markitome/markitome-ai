@@ -531,7 +531,7 @@ function renderDashboard(json) {
 }
 
 function renderSystemStatus(json) {
-  const checks = [["Google OAuth", json.google_oauth_configured], ["Workers AI", json.cloudflare_workers_ai_configured], ["Claude API", json.claude_configured], ["Meeting bot", json.recallai_bot_provider_configured]];
+  const checks = [["Google OAuth", json.google_oauth_configured], ["Workers AI", json.cloudflare_workers_ai_configured], ["Claude API", json.claude_configured], ["MeetingBot", json.meetingbot_provider_configured]];
   return '<div class="statusGrid">' + checks.map(([label, ok]) => '<div class="statusCard"><span>' + escapeHtml(label) + '</span><strong>' + (ok ? "Configured" : "Missing") + '</strong></div>').join("") + '</div>' + (json.required_action?.length ? '<div class="notice">' + json.required_action.map(escapeHtml).join("<br>") + '</div>' : "");
 }
 

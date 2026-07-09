@@ -8,6 +8,7 @@ import { sessionCookieName, verifySessionToken } from "./server/auth/session";
 import { errorBoundary, handleError } from "./server/http/errors";
 import { apiRoutes } from "./server/routes/api";
 import { handleQueueBatch, type QueueJob } from "./server/queues/jobs";
+import { BotSessionService } from "./server/bots/BotSessionService";
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -22,6 +23,15 @@ app.get("/health", (c) =>
     timestamp: new Date().toISOString()
   })
 );
+
+app.post("/api/public/bots/meetingbot/webhook", async (c) => {
+  const token = c.req.query("token") ?? c.req.header("x-webhook-secret");
+  if (c.env.WEBHOOK_SECRET && token !== c.env.WEBHOOK_SECRET) {
+    return c.json({ error: { code: "invalid_webhook_secret", message: "Webhook secret is invalid." } }, 403);
+  }
+  const botSession = await new BotSessionService(c.env).handleMeetingBotWebhook(await c.req.json());
+  return c.json({ ok: true, bot_session: botSession });
+});
 
 app.route("/api/auth", authRoutes);
 app.route("/api", apiRoutes);

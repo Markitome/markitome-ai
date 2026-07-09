@@ -14,39 +14,28 @@ export class GoogleMeetBotProvider implements BotProvider {
     options: BotJoinOptions
   ): Promise<BotSessionStatus> {
     assertConfirmedConsent(options);
-    return this.createRecallBot(meetingUrl, meetingId, options, startTime);
+    return this.createMeetingBot(meetingUrl, meetingId, options, startTime);
   }
 
   async joinNow(meetingUrl: string, meetingId: string, options: BotJoinOptions): Promise<BotSessionStatus> {
     assertConfirmedConsent(options);
-    return this.createRecallBot(meetingUrl, meetingId, options);
+    return this.createMeetingBot(meetingUrl, meetingId, options);
   }
 
   async leave(botSessionId: string): Promise<BotSessionStatus> {
-    if (!this.env.RECALLAI_API_KEY) return this.missingProviderStatus(botSessionId);
-    const response = await fetch(`${this.baseUrl()}/bot/${encodeURIComponent(botSessionId)}/leave_call/`, {
-      method: "POST",
-      headers: this.headers()
-    });
-    if (!response.ok) {
-      return {
-        botSessionId,
-        platform: this.platform,
-        status: "failed",
-        errorMessage: await this.errorMessage(response, "Recall.ai could not remove the bot from the call.")
-      };
-    }
     return {
       botSessionId,
-      platform: this.platform,
       externalBotId: botSessionId,
-      status: "left"
+      platform: this.platform,
+      status: "left",
+      errorMessage:
+        "MeetingBot does not expose a stable public stop-call endpoint in the inspected REST wrapper. Remove the bot from the meeting manually or extend the self-hosted MeetingBot API with a stop endpoint."
     };
   }
 
   async getStatus(botSessionId: string): Promise<BotSessionStatus> {
-    if (!this.env.RECALLAI_API_KEY) return this.missingProviderStatus(botSessionId);
-    const response = await fetch(`${this.baseUrl()}/bot/${encodeURIComponent(botSessionId)}/`, {
+    if (!this.isConfigured()) return this.missingProviderStatus(botSessionId);
+    const response = await fetch(`${this.baseUrl()}/api/bots/${encodeURIComponent(botSessionId)}`, {
       headers: this.headers()
     });
     if (!response.ok) {
@@ -54,34 +43,51 @@ export class GoogleMeetBotProvider implements BotProvider {
         botSessionId,
         platform: this.platform,
         status: "failed",
-        errorMessage: await this.errorMessage(response, "Recall.ai could not retrieve bot status.")
+        errorMessage: await this.errorMessage(response, "MeetingBot could not retrieve bot status.")
       };
     }
-    const json = await response.json() as RecallBotResponse;
-    return this.fromRecallBot(json, botSessionId);
+    return this.fromMeetingBot(await response.json(), botSessionId);
   }
 
-  async handleWebhook(_payload: unknown): Promise<BotSessionStatus | null> {
-    return null;
+  async handleWebhook(payload: unknown): Promise<BotSessionStatus | null> {
+    const body = payload as { botId?: number | string; status?: string; recording?: string };
+    if (body.botId === undefined || body.botId === null) return null;
+    return {
+      botSessionId: String(body.botId),
+      externalBotId: String(body.botId),
+      platform: this.platform,
+      status: mapMeetingBotStatus(body.status),
+      recordingR2Key: body.recording ?? null,
+      providerMetadata: {
+        provider: "meetingbot",
+        meetingbot_bot_id: String(body.botId),
+        status: body.status ?? null
+      }
+    };
   }
 
-  private async createRecallBot(
+  private async createMeetingBot(
     meetingUrl: string,
     botSessionId: string,
     options: BotJoinOptions,
-    joinAt?: string
+    startTime?: string
   ): Promise<BotSessionStatus> {
-    if (!this.env.RECALLAI_API_KEY) return this.missingProviderStatus(botSessionId);
-    const response = await fetch(`${this.baseUrl()}/bot/`, {
+    if (!this.isConfigured()) return this.missingProviderStatus(botSessionId);
+    const response = await fetch(`${this.baseUrl()}/api/bots`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({
-        meeting_url: meetingUrl,
-        bot_name: options.botDisplayName,
-        join_at: joinAt,
+        userId: options.requestedByUserId,
+        meetingTitle: options.metadata?.meetingTitle ?? "Markitome meeting",
+        botDisplayName: options.botDisplayName,
+        meetingInfo: {
+          platform: "google",
+          meetingUrl
+        },
+        startTime,
+        callbackUrl: this.callbackUrl(),
         metadata: {
           internal_bot_session_id: botSessionId,
-          requested_by_user_id: options.requestedByUserId,
           consent_status: options.consentStatus,
           ...(options.metadata ?? {})
         }
@@ -92,11 +98,33 @@ export class GoogleMeetBotProvider implements BotProvider {
         botSessionId,
         platform: this.platform,
         status: "failed",
-        errorMessage: await this.errorMessage(response, "Recall.ai could not create the Google Meet bot.")
+        errorMessage: await this.errorMessage(response, "MeetingBot could not create the Google Meet bot.")
       };
     }
-    const json = await response.json() as RecallBotResponse;
-    return this.fromRecallBot(json, botSessionId);
+    return this.fromMeetingBot(await response.json(), botSessionId);
+  }
+
+  private fromMeetingBot(bot: unknown, internalBotSessionId: string): BotSessionStatus {
+    const data = bot as MeetingBotResponse;
+    const externalBotId = data.id !== undefined && data.id !== null ? String(data.id) : internalBotSessionId;
+    return {
+      botSessionId: internalBotSessionId,
+      externalBotId,
+      platform: this.platform,
+      status: mapMeetingBotStatus(data.status),
+      errorMessage: data.deploymentError ?? data.deployment_error ?? null,
+      providerMetadata: {
+        provider: "meetingbot",
+        meetingbot_bot_id: externalBotId,
+        status: data.status ?? null,
+        recording: data.recording ?? null,
+        start_time: data.startTime ?? data.start_time ?? null
+      }
+    };
+  }
+
+  private isConfigured(): boolean {
+    return Boolean(this.env.MEETINGBOT_API_URL && this.env.MEETINGBOT_API_KEY);
   }
 
   private missingProviderStatus(botSessionId: string): BotSessionStatus {
@@ -105,37 +133,24 @@ export class GoogleMeetBotProvider implements BotProvider {
       platform: this.platform,
       status: "failed",
       errorMessage:
-        "Google Meet bot joining is not configured. Set RECALLAI_API_KEY in Cloudflare Workers to enable a real recording bot."
-    };
-  }
-
-  private fromRecallBot(bot: RecallBotResponse, internalBotSessionId: string): BotSessionStatus {
-    const externalBotId = bot.id ?? bot.bot_id ?? internalBotSessionId;
-    return {
-      botSessionId: internalBotSessionId,
-      externalBotId,
-      platform: this.platform,
-      status: mapRecallStatus(bot.status ?? bot.state),
-      errorMessage: bot.status_changes?.find((change) => change.code === "fatal")?.message ?? null,
-      providerMetadata: {
-        provider: "recall_ai",
-        recall_bot_id: externalBotId,
-        status: bot.status ?? bot.state ?? null,
-        meeting_url: bot.meeting_url ?? null,
-        join_at: bot.join_at ?? null
-      }
+        "MeetingBot is not configured. Deploy meetingbot/meetingbot separately, then set MEETINGBOT_API_URL and MEETINGBOT_API_KEY in Cloudflare Workers."
     };
   }
 
   private baseUrl(): string {
-    return (this.env.RECALLAI_BASE_URL || "https://us-east-1.recall.ai/api/v1").replace(/\/+$/, "");
+    return (this.env.MEETINGBOT_API_URL ?? "").replace(/\/+$/, "");
+  }
+
+  private callbackUrl(): string {
+    const secret = this.env.WEBHOOK_SECRET ? `?token=${encodeURIComponent(this.env.WEBHOOK_SECRET)}` : "";
+    return `https://${this.env.APP_DOMAIN}/api/public/bots/meetingbot/webhook${secret}`;
   }
 
   private headers(): HeadersInit {
     return {
       accept: "application/json",
-      authorization: `Token ${this.env.RECALLAI_API_KEY}`,
-      "content-type": "application/json"
+      "content-type": "application/json",
+      "x-api-key": this.env.MEETINGBOT_API_KEY ?? ""
     };
   }
 
@@ -143,29 +158,29 @@ export class GoogleMeetBotProvider implements BotProvider {
     const text = await response.text();
     if (!text) return `${fallback} Provider returned ${response.status}.`;
     try {
-      const json = JSON.parse(text) as { detail?: string; message?: string; error?: string; code?: string };
-      return `${fallback} Provider returned ${response.status}${json.detail || json.message || json.error || json.code ? `: ${json.detail || json.message || json.error || json.code}` : ""}.`;
+      const json = JSON.parse(text) as { error?: string; message?: string; detail?: string };
+      return `${fallback} Provider returned ${response.status}${json.error || json.message || json.detail ? `: ${json.error || json.message || json.detail}` : ""}.`;
     } catch {
       return `${fallback} Provider returned ${response.status}: ${text.slice(0, 240)}.`;
     }
   }
 }
 
-interface RecallBotResponse {
-  id?: string;
-  bot_id?: string;
-  meeting_url?: string;
-  join_at?: string | null;
+interface MeetingBotResponse {
+  id?: number | string;
   status?: string;
-  state?: string;
-  status_changes?: Array<{ code?: string; message?: string }>;
+  recording?: string | null;
+  deploymentError?: string | null;
+  deployment_error?: string | null;
+  startTime?: string | null;
+  start_time?: string | null;
 }
 
-function mapRecallStatus(status: string | undefined): BotSessionStatus["status"] {
+function mapMeetingBotStatus(status: string | undefined): BotSessionStatus["status"] {
   const normalized = (status ?? "").toLowerCase();
-  if (normalized.includes("fatal") || normalized.includes("error")) return "failed";
-  if (normalized.includes("done") || normalized.includes("ended") || normalized.includes("left")) return "left";
-  if (normalized.includes("call") || normalized.includes("record")) return "recording";
-  if (normalized.includes("join") || normalized.includes("wait")) return "joining";
+  if (normalized.includes("fatal") || normalized.includes("error") || normalized.includes("fail")) return "failed";
+  if (normalized.includes("done") || normalized.includes("left") || normalized.includes("ended")) return "left";
+  if (normalized.includes("record") || normalized.includes("deployed") || normalized.includes("ready")) return "recording";
+  if (normalized.includes("deploy") || normalized.includes("join") || normalized.includes("wait")) return "joining";
   return "scheduled";
 }

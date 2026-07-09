@@ -44,8 +44,8 @@ export interface Env {
   ZOOM_CLIENT_ID?: string;
   ZOOM_CLIENT_SECRET?: string;
   ZOOM_ACCOUNT_ID?: string;
-  RECALLAI_API_KEY?: string;
-  RECALLAI_BASE_URL?: string;
+  MEETINGBOT_API_URL?: string;
+  MEETINGBOT_API_KEY?: string;
   WEBHOOK_SECRET?: string;
 }
 

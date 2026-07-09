@@ -1311,7 +1311,7 @@ function getSystemStatus(env: Env): {
   google_oauth_configured: boolean;
   cloudflare_workers_ai_configured: boolean;
   claude_configured: boolean;
-  recallai_bot_provider_configured: boolean;
+  meetingbot_provider_configured: boolean;
   transcription_model: string;
   claude_model: string;
   required_action: string[];
@@ -1321,14 +1321,16 @@ function getSystemStatus(env: Env): {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) requiredAction.push("Configure Google OAuth secrets.");
   if (!env.AI) requiredAction.push("Configure the Cloudflare Workers AI binding.");
   if (!env.ANTHROPIC_API_KEY) requiredAction.push("Set ANTHROPIC_API_KEY with npx wrangler secret put ANTHROPIC_API_KEY.");
-  if (!env.RECALLAI_API_KEY) requiredAction.push("Set RECALLAI_API_KEY with npx wrangler secret put RECALLAI_API_KEY to enable meeting bots that join and record.");
+  if (!env.MEETINGBOT_API_URL || !env.MEETINGBOT_API_KEY) {
+    requiredAction.push("Deploy meetingbot/meetingbot, then set MEETINGBOT_API_URL and MEETINGBOT_API_KEY in Cloudflare Workers to enable bots that join and record.");
+  }
 
   return {
     session_secret_configured: Boolean(env.SESSION_SECRET),
     google_oauth_configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
     cloudflare_workers_ai_configured: Boolean(env.AI),
     claude_configured: Boolean(env.ANTHROPIC_API_KEY),
-    recallai_bot_provider_configured: Boolean(env.RECALLAI_API_KEY),
+    meetingbot_provider_configured: Boolean(env.MEETINGBOT_API_URL && env.MEETINGBOT_API_KEY),
     transcription_model: env.STT_MODEL || "@cf/openai/whisper-large-v3-turbo",
     claude_model: env.CLAUDE_MODEL || "claude-3-5-sonnet-latest",
     required_action: requiredAction
