@@ -30,42 +30,109 @@ function App({ user, path }: PageProps) {
   if (path === "/setup-required") return <SetupRequiredPage />;
   if (!user) return <LoginPage />;
   const page = selectPage(path, user);
+  return <Shell user={user} path={path}>{page}</Shell>;
+}
+
+function Shell({ user, path, children }: { user: AppUser; path: string; children: React.ReactNode }) {
+  const isAdmin = user.roles.includes("admin") || user.roles.includes("super_admin");
+  const isSuperAdmin = user.roles.includes("super_admin");
+  const navItems = [
+    { href: "/dashboard", label: "Home" },
+    { href: "/library", label: "Library" },
+    { href: "/recordings", label: "Recordings" },
+    { href: "/upload", label: "Upload" },
+    { href: "/screen-recording", label: "Screen recorder" },
+    { href: "/action-items", label: "Action items" },
+    { href: "/search", label: "Search" }
+  ];
+  const adminItems = [
+    { href: "/admin", label: "Admin dashboard" },
+    { href: "/admin/meetings", label: "All meetings" },
+    { href: "/admin/recordings", label: "All recordings" },
+    { href: "/admin/users", label: "Users" },
+    { href: "/admin/failures", label: "Failures" },
+    { href: "/admin/audit-logs", label: "Audit logs" }
+  ];
+  const superAdminItems = [
+    { href: "/settings", label: "System settings" },
+    { href: "/integrations", label: "Integrations" },
+    { href: "/api-usage", label: "API usage" },
+    { href: "/storage-usage", label: "Storage usage" },
+    { href: "/queue-logs", label: "Queue logs" }
+  ];
+  const initials = getInitials(user.name || user.email);
   return (
-    <div>
-      <Shell user={user}>{page}</Shell>
+    <div className="app-shell">
+      <aside className="sidebar" aria-label="Workspace navigation">
+        <a className="brand" href="/dashboard" aria-label="Markitome AI Notetaker dashboard">
+          <span className="brand-mark">M</span>
+          <span>
+            <strong>Markitome</strong>
+            <small>AI Notetaker</small>
+          </span>
+        </a>
+        <nav className="side-nav">
+          {navItems.map((item) => <a key={item.href} className={isActive(path, item.href) ? "active" : ""} href={item.href}>{item.label}</a>)}
+        </nav>
+        {isAdmin ? (
+          <div className="nav-section">
+            <p>Admin</p>
+            <nav className="side-nav">
+              {adminItems.map((item) => <a key={item.href} className={isActive(path, item.href) ? "active" : ""} href={item.href}>{item.label}</a>)}
+            </nav>
+          </div>
+        ) : null}
+        {isSuperAdmin ? (
+          <div className="nav-section">
+            <p>Super admin</p>
+            <nav className="side-nav">
+              {superAdminItems.map((item) => <a key={item.href} className={isActive(path, item.href) ? "active" : ""} href={item.href}>{item.label}</a>)}
+            </nav>
+          </div>
+        ) : null}
+        <div className="sidebar-footer">
+          <div className="user-chip">
+            <span>{initials}</span>
+            <div>
+              <strong>{user.name || "Markitome user"}</strong>
+              <small>{user.email}</small>
+            </div>
+          </div>
+          <form method="post" action="/api/auth/logout">
+            <button className="ghost-button" type="submit">Sign out</button>
+          </form>
+        </div>
+      </aside>
+      <div className="workspace">
+        <header className="workspace-topbar">
+          <form className="global-search" action="/search">
+            <input name="q" placeholder="Search meetings, transcripts, decisions..." />
+          </form>
+          <div className="quick-actions">
+            <a className="secondary" href="/screen-recording">Record screen</a>
+            <a className="primary" href="/upload">Upload recording</a>
+          </div>
+        </header>
+        <main>{children}</main>
+      </div>
     </div>
   );
 }
 
-function Shell({ user, children }: { user: AppUser; children: React.ReactNode }) {
-  const isAdmin = user.roles.includes("admin") || user.roles.includes("super_admin");
-  const isSuperAdmin = user.roles.includes("super_admin");
-  return (
-    <>
-      <header className="topbar">
-        <a className="brand" href="/dashboard">Markitome AI Notetaker</a>
-        <nav>
-          <a href="/meetings">Meetings</a>
-          <a href="/recordings">Recordings</a>
-          <a href="/upload">Upload</a>
-          <a href="/screen-recording">Screen Record</a>
-          <a href="/action-items">Actions</a>
-          <a href="/search">Search</a>
-          {isAdmin ? <a href="/admin">Admin</a> : null}
-          {isSuperAdmin ? <a href="/settings">Settings</a> : null}
-        </nav>
-        <form method="post" action="/api/auth/logout">
-          <button type="submit">Sign out</button>
-        </form>
-      </header>
-      <main>{children}</main>
-    </>
-  );
+function isActive(path: string, href: string) {
+  if (href === "/dashboard") return path === "/" || path === "/dashboard";
+  if (href === "/library") return path === "/library" || path === "/library/" || path === "/meetings" || path.startsWith("/meetings/");
+  return path === href || path.startsWith(`${href}/`);
+}
+
+function getInitials(value: string) {
+  const parts = value.split(/[\s@._-]+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "M";
 }
 
 function selectPage(path: string, user: AppUser) {
   if (path === "/" || path === "/dashboard") return <Dashboard user={user} />;
-  if (path === "/meetings") return <Library title="My Meetings" endpoint="/api/meetings" />;
+  if (path === "/meetings" || path === "/library" || path === "/library/") return <Library title="Meeting Library" endpoint="/api/meetings" />;
   if (path === "/recordings") return <Library title="My Recordings" endpoint="/api/recordings" />;
   if (path === "/upload") return <UploadPage />;
   if (path === "/screen-recording") return <ScreenRecorderPage />;
@@ -88,12 +155,21 @@ function selectPage(path: string, user: AppUser) {
 
 function LoginPage() {
   return (
-    <main className="auth">
-      <section>
-        <p className="eyebrow">Internal workspace</p>
-        <h1>Markitome AI Notetaker</h1>
-        <p>Secure meeting recording library, transcription pipeline, Claude-generated notes, and admin audit controls.</p>
-        <a className="primary" href="/api/auth/login">Continue with Google</a>
+    <main className="auth auth-split">
+      <section className="auth-welcome">
+        <div>
+          <p className="eyebrow">Internal workspace</p>
+          <h1>Welcome to Markitome</h1>
+          <p>Record, transcribe, search, and share meeting knowledge with consent-first controls.</p>
+        </div>
+      </section>
+      <section className="auth-card">
+        <div className="login-mark">M</div>
+        <h1>Log in to Markitome</h1>
+        <p className="workspace-url">notetaker.markitome.ai</p>
+        <a className="google-button" href="/api/auth/login"><span>G</span>Continue with Google</a>
+        <p className="auth-copy">Use your Markitome Google account. External access requires admin approval.</p>
+        <p className="legal-copy">By continuing, you acknowledge Markitome recording consent and retention policies.</p>
       </section>
     </main>
   );
@@ -409,53 +485,387 @@ function SuperAdminPanel({ title, endpoint }: { title: string; endpoint: string 
 }
 
 const css = `
-:root { color-scheme: light; --ink:#172026; --muted:#5d6b74; --line:#d8e0e5; --bg:#f7f8f5; --panel:#ffffff; --accent:#0f766e; --accent2:#1d4ed8; --warn:#8a4b08; }
-* { box-sizing: border-box; }
-body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--ink); background:var(--bg); }
+:root {
+  color-scheme: light;
+  --ink:#171426;
+  --muted:#726f7f;
+  --soft:#8b8797;
+  --line:#e6e2eb;
+  --bg:#f7f4fb;
+  --panel:#ffffff;
+  --nav:#2b174f;
+  --nav-2:#392064;
+  --accent:#6f4bd8;
+  --accent-2:#4d2fb4;
+  --accent-soft:#f0ebff;
+  --success:#15803d;
+  --warn:#9a5b12;
+  --danger:#b42318;
+  --shadow:0 18px 45px rgba(52, 35, 91, .10);
+}
+* { box-sizing:border-box; }
+html { min-height:100%; background:var(--bg); }
+body {
+  min-height:100vh;
+  margin:0;
+  font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color:var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(111, 75, 216, .10), transparent 34rem),
+    linear-gradient(180deg, #faf8fd 0%, #f3eff9 100%);
+}
 a { color:inherit; text-decoration:none; }
-.topbar { height:64px; display:flex; align-items:center; gap:20px; padding:0 24px; border-bottom:1px solid var(--line); background:#fff; position:sticky; top:0; z-index:3; }
-.brand { font-weight:800; white-space:nowrap; }
-nav { display:flex; gap:14px; flex:1; overflow:auto; }
-nav a { color:var(--muted); font-size:14px; }
-button, .primary, .secondary, .actions a { border:1px solid var(--line); background:#fff; border-radius:6px; padding:10px 14px; font-weight:650; cursor:pointer; }
-.primary, .actions a.primary, button[type=submit] { background:var(--accent); color:#fff; border-color:var(--accent); }
-.secondary { color:var(--accent2); }
-main { width:min(1180px, calc(100% - 32px)); margin:28px auto 64px; }
-.auth { min-height:100vh; display:grid; place-items:center; margin:0 auto; }
-.auth section { width:min(620px, calc(100% - 32px)); }
-.auth h1 { font-size:48px; line-height:1.05; margin:8px 0 16px; }
-.auth p { color:var(--muted); font-size:18px; line-height:1.55; }
-.eyebrow { margin:0; text-transform:uppercase; font-size:12px; letter-spacing:0; color:var(--accent); font-weight:800; }
-.heading h1 { margin:4px 0 0; font-size:34px; }
+button, input, select, textarea { font:inherit; }
+button, .primary, .secondary, .actions a {
+  min-height:38px;
+  border:1px solid var(--line);
+  background:#fff;
+  border-radius:8px;
+  padding:9px 14px;
+  font-weight:700;
+  cursor:pointer;
+  box-shadow:0 1px 1px rgba(30, 23, 52, .04);
+}
+.primary, .actions a.primary, button[type=submit] {
+  background:var(--accent);
+  color:#fff;
+  border-color:var(--accent);
+}
+.primary:hover, button[type=submit]:hover { background:var(--accent-2); border-color:var(--accent-2); }
+.secondary { color:var(--accent-2); background:#fff; }
+.ghost-button { width:100%; color:#ede8ff; background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.14); }
+.app-shell { min-height:100vh; display:grid; grid-template-columns:280px minmax(0, 1fr); }
+.sidebar {
+  position:sticky;
+  top:0;
+  height:100vh;
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  padding:20px 16px;
+  color:#f8f5ff;
+  background:linear-gradient(180deg, var(--nav) 0%, #241142 100%);
+  overflow:auto;
+}
+.brand {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:4px 6px 16px;
+  border-bottom:1px solid rgba(255,255,255,.10);
+}
+.brand-mark, .login-mark {
+  display:grid;
+  place-items:center;
+  width:42px;
+  height:42px;
+  border-radius:50%;
+  background:#fff;
+  color:var(--accent-2);
+  font-weight:900;
+  box-shadow:0 12px 28px rgba(23, 12, 48, .24);
+}
+.brand strong { display:block; font-size:16px; line-height:1.15; }
+.brand small { display:block; margin-top:2px; color:#cfc6ef; font-size:12px; }
+.side-nav { display:grid; gap:4px; }
+.side-nav a {
+  min-height:38px;
+  display:flex;
+  align-items:center;
+  padding:9px 12px;
+  color:#dfd8f5;
+  border-radius:8px;
+  font-size:14px;
+  font-weight:650;
+}
+.side-nav a:hover, .side-nav a.active { color:#fff; background:rgba(255,255,255,.12); }
+.nav-section { display:grid; gap:8px; }
+.nav-section p {
+  margin:0 12px;
+  color:#b8addb;
+  font-size:11px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.sidebar-footer { margin-top:auto; display:grid; gap:12px; }
+.user-chip {
+  display:grid;
+  grid-template-columns:38px minmax(0, 1fr);
+  gap:10px;
+  align-items:center;
+  padding:10px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:12px;
+  background:rgba(255,255,255,.07);
+}
+.user-chip > span {
+  display:grid;
+  place-items:center;
+  width:38px;
+  height:38px;
+  border-radius:50%;
+  background:#fff;
+  color:var(--accent-2);
+  font-weight:900;
+}
+.user-chip strong, .user-chip small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.user-chip strong { font-size:13px; }
+.user-chip small { margin-top:2px; color:#d8d0f3; font-size:12px; }
+.workspace { min-width:0; }
+.workspace-topbar {
+  position:sticky;
+  top:0;
+  z-index:3;
+  min-height:74px;
+  display:flex;
+  gap:16px;
+  align-items:center;
+  justify-content:space-between;
+  padding:16px 32px;
+  background:rgba(250,248,253,.86);
+  border-bottom:1px solid rgba(230,226,235,.78);
+  backdrop-filter:blur(16px);
+}
+.global-search { flex:1; max-width:640px; }
+.quick-actions, .actions, .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+main { width:min(1180px, calc(100% - 48px)); margin:30px auto 72px; }
+.auth { width:100%; max-width:none; min-height:100vh; margin:0; }
+.auth-split { display:grid; grid-template-columns:minmax(320px, 43%) minmax(0, 1fr); background:#fff; }
+.auth-welcome {
+  display:grid;
+  place-items:center;
+  min-height:100vh;
+  padding:48px;
+  color:#fff;
+  background:
+    linear-gradient(150deg, rgba(45, 21, 85, .96), rgba(100, 67, 192, .94)),
+    radial-gradient(circle at 30% 18%, rgba(255,255,255,.22), transparent 18rem);
+}
+.auth-welcome div { width:min(420px, 100%); }
+.auth-welcome h1 { margin:10px 0 16px; font-size:48px; line-height:1.04; }
+.auth-welcome p:not(.eyebrow) { color:#ebe7ff; font-size:18px; line-height:1.55; }
+.auth-card {
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  width:min(440px, calc(100% - 48px));
+  margin:0 auto;
+  text-align:center;
+}
+.auth-card h1 { margin:22px 0 6px; font-size:30px; line-height:1.15; }
+.workspace-url { margin:0 0 24px; color:var(--muted); font-size:14px; }
+.google-button {
+  width:100%;
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  white-space:nowrap;
+  border:1px solid var(--line);
+  border-radius:8px;
+  color:var(--ink);
+  background:#fff;
+  font-weight:800;
+  box-shadow:0 8px 22px rgba(52, 35, 91, .08);
+}
+.google-button span {
+  display:grid;
+  place-items:center;
+  width:24px;
+  height:24px;
+  border:1px solid var(--line);
+  border-radius:50%;
+  color:#4285f4;
+  font-weight:900;
+}
+.auth-copy, .legal-copy { color:var(--muted); line-height:1.55; }
+.auth-copy { margin:18px 0 8px; font-size:14px; }
+.legal-copy { margin:0; font-size:12px; }
+.eyebrow {
+  margin:0;
+  color:var(--accent-2);
+  font-size:12px;
+  font-weight:900;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+}
+.auth-welcome .eyebrow { color:#dcd4ff; }
+.heading {
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:18px;
+}
+.heading h1 { margin:5px 0 0; font-size:34px; line-height:1.15; letter-spacing:0; }
 .stack { display:grid; gap:20px; }
-.grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
-.metric, .panel, .form, .recorder { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:18px; }
-.metric span { color:var(--muted); display:block; font-size:13px; }
-.metric strong { display:block; font-size:28px; margin-top:8px; }
-.actions, .toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
-.form { display:grid; gap:14px; max-width:760px; }
-label { display:grid; gap:6px; color:var(--muted); font-size:14px; font-weight:650; }
-.check { display:flex; align-items:center; color:var(--ink); }
-input, select, textarea { width:100%; border:1px solid var(--line); border-radius:6px; padding:10px 12px; font:inherit; background:#fff; color:var(--ink); }
-textarea { min-height:96px; resize:vertical; }
-.notice { border:1px solid #e7c995; color:var(--warn); background:#fff8ea; padding:14px 16px; border-radius:8px; font-weight:650; }
-.json-output { white-space:pre-wrap; overflow:auto; color:#23313a; background:#f0f4f2; padding:12px; border-radius:6px; min-height:80px; }
-.status-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
-.status-card { border:1px solid var(--line); border-radius:8px; padding:14px; background:#fbfcfb; }
-.status-card span { display:block; color:var(--muted); font-size:12px; text-transform:uppercase; font-weight:800; }
-.status-card strong { display:block; margin-top:6px; font-size:22px; }
-.table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; }
-table { width:100%; border-collapse:collapse; min-width:720px; background:#fff; }
-th, td { text-align:left; border-bottom:1px solid var(--line); padding:10px 12px; vertical-align:top; font-size:14px; }
-th { background:#f0f4f2; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0; }
+.grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+.metric, .panel, .form, .recorder {
+  background:rgba(255,255,255,.92);
+  border:1px solid rgba(230,226,235,.95);
+  border-radius:12px;
+  padding:20px;
+  box-shadow:var(--shadow);
+}
+.metric span { color:var(--muted); display:block; font-size:13px; font-weight:750; }
+.metric strong { display:block; margin-top:10px; font-size:30px; line-height:1; }
+.panel h2 { margin:0 0 14px; font-size:20px; }
+.form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; max-width:920px; }
+.form label:has(textarea), .form label:has(input[type=file]), .form .check, .form progress, .form button, .form + .json-output { grid-column:1 / -1; }
+label { display:grid; gap:7px; color:var(--muted); font-size:13px; font-weight:750; }
+.check { display:flex; align-items:center; gap:8px; color:var(--ink); }
+input, select, textarea {
+  width:100%;
+  border:1px solid var(--line);
+  border-radius:8px;
+  padding:10px 12px;
+  background:#fff;
+  color:var(--ink);
+  outline:none;
+}
+input:focus, select:focus, textarea:focus {
+  border-color:#b5a2ee;
+  box-shadow:0 0 0 3px rgba(111,75,216,.16);
+}
+textarea { min-height:106px; resize:vertical; }
+.toolbar {
+  padding:12px;
+  border:1px solid rgba(230,226,235,.92);
+  border-radius:12px;
+  background:rgba(255,255,255,.72);
+  box-shadow:0 8px 24px rgba(52,35,91,.06);
+}
+.toolbar input { flex:1 1 260px; }
+.toolbar select { flex:0 1 210px; }
+.notice {
+  border:1px solid #ead29c;
+  color:var(--warn);
+  background:#fff8e7;
+  padding:14px 16px;
+  border-radius:10px;
+  font-weight:750;
+}
+.json-output {
+  white-space:pre-wrap;
+  overflow:auto;
+  color:#332b43;
+  background:#f3eff8;
+  padding:14px;
+  border:1px solid #e8e2f0;
+  border-radius:10px;
+  min-height:84px;
+}
+.status-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; }
+.status-card {
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:16px;
+  background:#fff;
+}
+.status-card span { display:block; color:var(--muted); font-size:12px; text-transform:uppercase; font-weight:900; letter-spacing:.05em; }
+.status-card strong { display:block; margin-top:8px; font-size:24px; }
+.library-list {
+  display:grid;
+  gap:10px;
+}
+.library-row {
+  display:grid;
+  grid-template-columns:minmax(0, 1.5fr) minmax(180px, .75fr) minmax(160px, .6fr) auto;
+  gap:16px;
+  align-items:center;
+  padding:16px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 8px 24px rgba(52,35,91,.06);
+}
+.library-row:hover { border-color:#d6c9f6; background:#fdfbff; }
+.library-title {
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  gap:6px;
+}
+.library-title a { color:var(--ink); font-size:15px; font-weight:850; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.library-title small, .library-meta small { color:var(--muted); font-size:12px; line-height:1.4; }
+.library-meta { display:grid; gap:5px; min-width:0; }
+.library-meta strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; }
+.table-wrap {
+  overflow:auto;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:#fff;
+  box-shadow:0 8px 24px rgba(52,35,91,.06);
+}
+table { width:100%; border-collapse:separate; border-spacing:0; min-width:780px; background:#fff; }
+th, td { text-align:left; border-bottom:1px solid var(--line); padding:13px 14px; vertical-align:middle; font-size:14px; }
+th {
+  position:sticky;
+  top:0;
+  color:#5b536d;
+  background:#fbf9fd;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+}
+tbody tr:hover { background:#fbf9ff; }
 tr:last-child td { border-bottom:0; }
-.pill { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; background:#eef5f4; color:var(--accent); font-size:12px; font-weight:800; }
-.empty-state { color:var(--muted); background:#f0f4f2; border-radius:6px; padding:14px; }
-.error-state { color:#7f1d1d; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:14px; font-weight:650; }
+td a { color:var(--accent-2); font-weight:800; }
+.pill {
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  padding:5px 9px;
+  background:var(--accent-soft);
+  color:var(--accent-2);
+  font-size:12px;
+  font-weight:850;
+}
+.empty-state {
+  color:var(--muted);
+  background:#fff;
+  border:1px dashed var(--line);
+  border-radius:12px;
+  padding:18px;
+}
+.error-state {
+  color:var(--danger);
+  background:#fff5f5;
+  border:1px solid #ffd0d0;
+  border-radius:10px;
+  padding:14px;
+  font-weight:750;
+}
 .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size:12px; }
-progress { width:100%; height:12px; }
-video { width:100%; max-height:420px; background:#111; border-radius:8px; }
-@media (max-width: 780px) { .topbar { align-items:flex-start; height:auto; padding:14px; flex-wrap:wrap; } .grid { grid-template-columns:1fr; } .auth h1 { font-size:36px; } }
+progress { width:100%; height:12px; accent-color:var(--accent); }
+video { width:100%; max-height:420px; background:#120c20; border-radius:12px; box-shadow:var(--shadow); }
+@media (max-width: 980px) {
+  .app-shell { grid-template-columns:1fr; }
+  .sidebar { position:relative; height:auto; border-radius:0 0 18px 18px; }
+  .side-nav { grid-template-columns:repeat(auto-fit,minmax(142px,1fr)); }
+  .workspace-topbar { position:relative; padding:14px 20px; flex-direction:column; align-items:stretch; }
+  .global-search { max-width:none; }
+  main { width:min(100% - 28px, 980px); margin:22px auto 54px; }
+  .grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .form { grid-template-columns:1fr; }
+  .library-row { grid-template-columns:1fr; align-items:start; }
+}
+@media (max-width: 820px) {
+  .auth-split { grid-template-columns:1fr; }
+  .auth-welcome { min-height:34vh; padding:34px 24px; }
+  .auth-welcome h1 { font-size:34px; }
+  .auth-card { min-height:66vh; width:min(100% - 32px, 440px); }
+}
+@media (max-width: 720px) {
+  .heading { align-items:flex-start; flex-direction:column; }
+  .heading h1 { font-size:28px; }
+  .grid { grid-template-columns:1fr; }
+  .quick-actions { flex-direction:column; align-items:stretch; }
+  .quick-actions a, .actions a, button { width:100%; text-align:center; }
+}
 `;
 
 const clientScript = `
@@ -557,26 +967,30 @@ function renderSystemStatus(json) {
 }
 
 function renderMeetings(meetings) {
-  return table(["Title", "Date", "Owner", "Platform", "Source", "Status"], meetings.map((meeting) => '<tr>' +
-    td('<a href="/meetings/' + encodeURIComponent(meeting.id) + '">' + escapeHtml(meeting.title) + '</a>') +
-    td(escapeHtml(formatDate(meeting.meeting_datetime))) +
-    td(escapeHtml(meeting.owner_email || meeting.owner_user_id || "-")) +
-    td(pill(meeting.platform)) +
-    td(escapeHtml(meeting.source_type || "-")) +
-    td(pill(meeting.processing_status)) +
-  '</tr>'));
+  if (!meetings.length) return emptyState("No meetings found.");
+  return '<div class="library-list">' + meetings.map((meeting) => '<article class="library-row">' +
+    '<div class="library-title">' +
+      '<a href="/meetings/' + encodeURIComponent(meeting.id) + '">' + escapeHtml(meeting.title || "Untitled meeting") + '</a>' +
+      '<small>' + escapeHtml(meeting.source_type || "-") + ' · ' + escapeHtml(meeting.owner_email || meeting.owner_user_id || "No owner") + '</small>' +
+    '</div>' +
+    '<div class="library-meta"><small>Date</small><strong>' + escapeHtml(formatDate(meeting.meeting_datetime)) + '</strong></div>' +
+    '<div class="library-meta"><small>Platform</small><strong>' + pill(meeting.platform) + '</strong></div>' +
+    '<div>' + pill(meeting.processing_status) + '</div>' +
+  '</article>').join("") + '</div>';
 }
 
 function renderRecordings(recordings) {
-  return table(["File", "Meeting", "Owner", "Type", "Size", "Status", "Error"], recordings.map((recording) => '<tr>' +
-    td('<a href="/meetings/' + encodeURIComponent(recording.meeting_id) + '">' + escapeHtml(recording.original_filename || recording.id) + '</a>') +
-    td(escapeHtml(recording.meeting_title || "-")) +
-    td(escapeHtml(recording.owner_email || recording.owner_user_id || "-")) +
-    td(pill(recording.source_type)) +
-    td(escapeHtml(formatBytes(recording.file_size))) +
-    td(pill(recording.processing_status)) +
-    td(escapeHtml(recording.error_message || "-")) +
-  '</tr>'));
+  if (!recordings.length) return emptyState("No recordings found.");
+  return '<div class="library-list">' + recordings.map((recording) => '<article class="library-row">' +
+    '<div class="library-title">' +
+      '<a href="/meetings/' + encodeURIComponent(recording.meeting_id) + '">' + escapeHtml(recording.meeting_title || recording.original_filename || recording.id) + '</a>' +
+      '<small>' + escapeHtml(recording.original_filename || "Recording") + ' · ' + escapeHtml(recording.owner_email || recording.owner_user_id || "No owner") + '</small>' +
+    '</div>' +
+    '<div class="library-meta"><small>Type</small><strong>' + pill(recording.source_type) + '</strong></div>' +
+    '<div class="library-meta"><small>Size</small><strong>' + escapeHtml(formatBytes(recording.file_size)) + '</strong></div>' +
+    '<div>' + pill(recording.processing_status) + '</div>' +
+    (recording.error_message ? '<div class="error-state">' + escapeHtml(recording.error_message) + '</div>' : "") +
+  '</article>').join("") + '</div>';
 }
 
 function renderUsers(users) {
