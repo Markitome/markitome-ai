@@ -623,36 +623,69 @@ apiRoutes.post("/integrations/google-calendar/import-upcoming", async (c) => {
   const input = await parseJson(
     c,
     z.object({
-      days: z.number().int().min(1).max(30).optional().default(7)
+      days: z.number().int().min(1).max(30).optional().default(7),
+      schedule_bots: z.boolean().optional().default(false),
+      consent_status: consentStatusSchema.optional().default("pending")
     })
   );
+  if (input.schedule_bots && input.consent_status !== "confirmed") {
+    throw new ApiError(400, "consent_required", "Confirmed recording consent is required before scheduling notetaker bots.");
+  }
   const events = await listGoogleCalendarEvents(c, input.days);
-  const imported: Array<{ id: string; title: string; calendar_event_id: string }> = [];
+  const imported: Array<{ id: string; title: string; calendar_event_id: string; meeting_url: string | null; bot_session?: unknown }> = [];
+  const skipped: Array<{ calendar_event_id: string; title: string; reason: string }> = [];
   for (const event of events) {
     if (!event.id || !event.summary || !event.start) continue;
-    const meetingUrl = event.hangoutLink ?? event.htmlLink ?? null;
-    const existing = await c.env.DB.prepare(
-      "SELECT id FROM meetings WHERE owner_user_id = ? AND meeting_url = ? AND deleted_at IS NULL"
-    )
-      .bind(c.get("user").id, meetingUrl)
-      .first<{ id: string }>();
-    if (existing) continue;
-    const meeting = await createMeeting(c, {
-      title: event.summary,
-      description: event.description ?? null,
-      meeting_datetime: event.start,
-      platform: "google_meet",
-      source_type: "google_meet",
-      meeting_url: meetingUrl,
-      agenda: event.description ?? "",
-      manual_notes: "",
-      participants: event.attendees.map((attendee) => ({ email: attendee.email, name: attendee.name })),
-      visibility: "private"
-    });
-    imported.push({ id: meeting.id, title: meeting.title, calendar_event_id: event.id });
+    const meetingUrl = event.meetingUrl ?? event.hangoutLink ?? null;
+    let existing = meetingUrl
+      ? await c.env.DB.prepare("SELECT id, title FROM meetings WHERE owner_user_id = ? AND meeting_url = ? AND deleted_at IS NULL")
+          .bind(c.get("user").id, meetingUrl)
+          .first<{ id: string; title: string }>()
+      : null;
+    if (!existing) {
+      const meeting = await createMeeting(c, {
+        title: event.summary,
+        description: event.description ?? null,
+        meeting_datetime: event.start,
+        platform: "google_meet",
+        source_type: "google_meet",
+        meeting_url: meetingUrl,
+        agenda: event.description ?? "",
+        manual_notes: "",
+        participants: event.attendees.map((attendee) => ({ email: attendee.email, name: attendee.name })),
+        visibility: "private"
+      });
+      existing = { id: meeting.id, title: meeting.title };
+    }
+    let botSession: unknown;
+    if (input.schedule_bots) {
+      if (!meetingUrl) {
+        skipped.push({ calendar_event_id: event.id, title: event.summary, reason: "No Google Meet URL was available on the calendar event." });
+      } else {
+        const existingBot = await c.env.DB.prepare(
+          "SELECT id FROM bot_sessions WHERE meeting_id = ? AND status IN ('scheduled', 'joining', 'recording') ORDER BY created_at DESC LIMIT 1"
+        )
+          .bind(existing.id)
+          .first<{ id: string }>();
+        if (existingBot) {
+          skipped.push({ calendar_event_id: event.id, title: event.summary, reason: "A bot session is already scheduled or active for this meeting." });
+        } else {
+          botSession = await new BotSessionService(c.env).schedule({
+            platform: "google_meet",
+            meetingUrl,
+            meetingId: existing.id,
+            startTime: event.start,
+            consentStatus: "confirmed",
+            requestedByUserId: c.get("user").id
+          });
+          await writeAuditLog(c, { action: "bot_join", targetType: "meeting", targetId: existing.id, metadata: { source: "google_calendar_import", calendar_event_id: event.id } });
+        }
+      }
+    }
+    imported.push({ id: existing.id, title: existing.title, calendar_event_id: event.id, meeting_url: meetingUrl, bot_session: botSession });
   }
   await writeAuditLog(c, { action: "integration_change", targetType: "integration", targetId: "google_calendar", metadata: { imported: imported.length } });
-  return c.json({ imported, scanned: events.length });
+  return c.json({ imported, skipped, scanned: events.length });
 });
 
 apiRoutes.get("/admin/dashboard", requireRoles(["admin", "super_admin"]), async (c) => {
@@ -879,6 +912,7 @@ type GoogleCalendarEvent = {
   end: string | null;
   htmlLink: string | null;
   hangoutLink: string | null;
+  meetingUrl: string | null;
   attendees: Array<{ email?: string; name?: string }>;
 };
 
@@ -957,6 +991,7 @@ async function listGoogleCalendarEvents(c: AppContext, days: number): Promise<Go
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("orderBy", "startTime");
   url.searchParams.set("maxResults", "50");
+  url.searchParams.set("conferenceDataVersion", "1");
 
   const response = await fetch(url.toString(), {
     headers: { authorization: `Bearer ${accessToken}` }
@@ -980,6 +1015,7 @@ async function listGoogleCalendarEvents(c: AppContext, days: number): Promise<Go
       end?: { dateTime?: string; date?: string };
       htmlLink?: string;
       hangoutLink?: string;
+      conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
       attendees?: Array<{ email?: string; displayName?: string }>;
     }>;
   };
@@ -991,8 +1027,17 @@ async function listGoogleCalendarEvents(c: AppContext, days: number): Promise<Go
     end: event.end?.dateTime ?? event.end?.date ?? null,
     htmlLink: event.htmlLink ?? null,
     hangoutLink: event.hangoutLink ?? null,
+    meetingUrl: extractGoogleMeetUrl(event),
     attendees: (event.attendees ?? []).map((attendee) => ({ email: attendee.email, name: attendee.displayName }))
   }));
+}
+
+function extractGoogleMeetUrl(event: {
+  hangoutLink?: string;
+  conferenceData?: { entryPoints?: Array<{ entryPointType?: string; uri?: string }> };
+}): string | null {
+  const conferenceUri = event.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === "video" && entry.uri)?.uri;
+  return conferenceUri ?? event.hangoutLink ?? null;
 }
 
 function parseGoogleApiError(text: string): { message: string | null; status: string | null } {

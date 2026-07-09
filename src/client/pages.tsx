@@ -217,7 +217,8 @@ function CalendarPage() {
       <div className="notice">Uses Google Calendar read-only access. Markitome imports selected events as meeting notes and does not edit your calendar.</div>
       <section className="card" data-load="/api/integrations/google-calendar/status"><h2>Connection</h2><div className="loading">Loading status...</div></section>
       <section className="card">
-        <div className="cardHeader"><div><p className="eyebrow">Upcoming</p><h2>Next 7 days</h2></div><button id="importCalendarEvents">Import as meeting notes</button></div>
+        <div className="cardHeader"><div><p className="eyebrow">Upcoming</p><h2>Next 7 days</h2></div><div className="actionRow"><button id="importCalendarEvents">Import as meeting notes</button><button id="scheduleCalendarBots">Import and schedule notetaker</button></div></div>
+        <label className="check"><input id="calendarBotConsent" type="checkbox" /> I confirm recording consent has been obtained for scheduled notetaker bots.</label>
         <div data-load="/api/integrations/google-calendar/events?days=7"><div className="loading">Loading calendar events...</div></div>
         <pre id="calendarImportResult" className="result"></pre>
       </section>
@@ -589,7 +590,7 @@ function renderGoogleCalendarStatus(status) {
 
 function renderGoogleCalendarEvents(events) {
   if (!events.length) return emptyState("No upcoming Google Calendar events found.");
-  return '<div class="libraryList">' + events.map((event) => '<article class="libraryRow"><div class="libraryTitle"><a href="' + escapeHtml(event.htmlLink || event.hangoutLink || "#") + '">' + escapeHtml(event.summary || "Untitled event") + '</a><small>' + escapeHtml((event.attendees || []).map((attendee) => attendee.email || attendee.name).filter(Boolean).slice(0, 4).join(", ") || "No attendees") + '</small></div><div class="libraryMeta"><small>Start</small><strong>' + escapeHtml(formatDate(event.start)) + '</strong></div><div class="libraryMeta"><small>End</small><strong>' + escapeHtml(formatDate(event.end)) + '</strong></div><div>' + pill(event.hangoutLink ? "Google Meet" : "Calendar") + '</div></article>').join("") + '</div>';
+  return '<div class="libraryList">' + events.map((event) => '<article class="libraryRow"><div class="libraryTitle"><a href="' + escapeHtml(event.meetingUrl || event.hangoutLink || event.htmlLink || "#") + '">' + escapeHtml(event.summary || "Untitled event") + '</a><small>' + escapeHtml((event.attendees || []).map((attendee) => attendee.email || attendee.name).filter(Boolean).slice(0, 4).join(", ") || "No attendees") + '</small></div><div class="libraryMeta"><small>Start</small><strong>' + escapeHtml(formatDate(event.start)) + '</strong></div><div class="libraryMeta"><small>End</small><strong>' + escapeHtml(formatDate(event.end)) + '</strong></div><div>' + pill((event.meetingUrl || event.hangoutLink) ? "Google Meet" : "Calendar") + '</div></article>').join("") + '</div>';
 }
 
 function renderMeetingBundle(meeting) {
@@ -683,22 +684,29 @@ $("#automationForm")?.addEventListener("submit", (event) => {
   $("#automationResult").textContent = JSON.stringify({ saved: true, scope: "browser_draft", values }, null, 2);
 });
 
-$("#importCalendarEvents")?.addEventListener("click", async (event) => {
-  const button = event.currentTarget;
+async function importCalendarEvents(button, scheduleBots) {
   const result = $("#calendarImportResult");
+  if (scheduleBots && !$("#calendarBotConsent")?.checked) {
+    result.textContent = "Confirmed recording consent is required before scheduling notetaker bots.";
+    return;
+  }
   button.disabled = true;
-  button.textContent = "Importing...";
+  const originalText = button.textContent;
+  button.textContent = scheduleBots ? "Scheduling..." : "Importing...";
   try {
-    const response = await fetch("/api/integrations/google-calendar/import-upcoming", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days: 7 }) });
+    const response = await fetch("/api/integrations/google-calendar/import-upcoming", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days: 7, schedule_bots: scheduleBots, consent_status: scheduleBots ? "confirmed" : "pending" }) });
     const json = await readApiResponse(response);
     if (!response.ok) throw new Error(json?.error?.message || JSON.stringify(json));
     result.textContent = JSON.stringify(json, null, 2);
-    button.textContent = "Imported";
+    button.textContent = scheduleBots ? "Scheduled" : "Imported";
   } catch (error) {
     result.textContent = error.message || String(error);
-    button.textContent = "Import as meeting notes";
+    button.textContent = originalText;
   } finally { button.disabled = false; }
-});
+}
+
+$("#importCalendarEvents")?.addEventListener("click", (event) => importCalendarEvents(event.currentTarget, false));
+$("#scheduleCalendarBots")?.addEventListener("click", (event) => importCalendarEvents(event.currentTarget, true));
 
 for (const button of $$("[data-regenerate-notes]")) {
   button.addEventListener("click", async () => {
