@@ -79,10 +79,10 @@ function selectPage(path: string, user: AppUser) {
   if (path === "/admin/failures") return <ProcessingFailures />;
   if (path === "/admin/audit-logs") return <AuditLogs />;
   if (path === "/settings") return <SuperAdminSettings />;
-  if (path === "/integrations") return <SuperAdminPanel title="Integrations" />;
-  if (path === "/api-usage") return <SuperAdminPanel title="API Usage" />;
-  if (path === "/storage-usage") return <SuperAdminPanel title="Storage Usage" />;
-  if (path === "/queue-logs") return <SuperAdminPanel title="Queue / Job Logs" />;
+  if (path === "/integrations") return <SuperAdminPanel title="Integrations" endpoint="/api/admin/integrations" />;
+  if (path === "/api-usage") return <SuperAdminPanel title="API Usage" endpoint="/api/admin/api-usage" />;
+  if (path === "/storage-usage") return <SuperAdminPanel title="Storage Usage" endpoint="/api/admin/storage-usage" />;
+  if (path === "/queue-logs") return <SuperAdminPanel title="Queue / Job Logs" endpoint="/api/admin/queue-logs" />;
   return <Dashboard user={user} />;
 }
 
@@ -149,12 +149,13 @@ function Dashboard({ user }: { user: AppUser }) {
         <section className="panel" data-load="/api/admin/dashboard">
           <h2>Admin overview</h2>
           <div className="json-output">Loading admin metrics...</div>
-          <div className="actions">
-            <a href="/admin/meetings">All meetings</a>
-            <a href="/admin/recordings">All recordings</a>
-            <a href="/admin/users">User management</a>
-            <a href="/admin/audit-logs">Audit logs</a>
-          </div>
+      <div className="actions">
+        <a href="/admin/meetings">All meetings</a>
+        <a href="/admin/recordings">All recordings</a>
+        <a href="/admin/users">User management</a>
+        <a href="/admin/failures">Processing failures</a>
+        <a href="/admin/audit-logs">Audit logs</a>
+      </div>
         </section>
       ) : null}
       {isSuperAdmin ? (
@@ -209,7 +210,7 @@ function Library({ title, endpoint }: { title: string; endpoint: string }) {
           <option value="failed">Failed</option>
         </select>
       </div>
-      <section className="panel" data-load={endpoint}>
+      <section className="panel" data-load={endpoint} data-load-base={endpoint}>
         <div className="json-output">Loading library...</div>
       </section>
     </section>
@@ -311,7 +312,7 @@ function MeetingDetail({ meetingId }: { meetingId: string }) {
 }
 
 function ActionItemsPage() {
-  return <Library title="Action Items" endpoint="/api/search?q=action" />;
+  return <Library title="Action Items" endpoint="/api/action-items" />;
 }
 
 function SearchPage() {
@@ -381,6 +382,10 @@ function SuperAdminSettings() {
           <li>Maximum upload size</li>
         </ul>
       </section>
+      <section className="panel" data-load="/api/admin/system-settings">
+        <h2>Saved settings</h2>
+        <div className="json-output">Loading settings...</div>
+      </section>
       <section className="panel" data-load="/api/admin/system-status">
         <h2>Production status</h2>
         <div className="json-output">Loading system status...</div>
@@ -389,15 +394,15 @@ function SuperAdminSettings() {
   );
 }
 
-function SuperAdminPanel({ title }: { title: string }) {
+function SuperAdminPanel({ title, endpoint }: { title: string; endpoint: string }) {
   return (
     <section className="stack">
       <div className="heading">
         <p className="eyebrow">Super admin</p>
         <h1>{title}</h1>
       </div>
-      <section className="panel">
-      <div className="json-output">Configuration and usage data will be loaded from system settings, integrations, usage logs, storage metrics, and processing jobs.</div>
+      <section className="panel" data-load={endpoint}>
+        <div className="json-output">Loading {title.toLowerCase()}...</div>
       </section>
     </section>
   );
@@ -435,6 +440,19 @@ input, select, textarea { width:100%; border:1px solid var(--line); border-radiu
 textarea { min-height:96px; resize:vertical; }
 .notice { border:1px solid #e7c995; color:var(--warn); background:#fff8ea; padding:14px 16px; border-radius:8px; font-weight:650; }
 .json-output { white-space:pre-wrap; overflow:auto; color:#23313a; background:#f0f4f2; padding:12px; border-radius:6px; min-height:80px; }
+.status-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+.status-card { border:1px solid var(--line); border-radius:8px; padding:14px; background:#fbfcfb; }
+.status-card span { display:block; color:var(--muted); font-size:12px; text-transform:uppercase; font-weight:800; }
+.status-card strong { display:block; margin-top:6px; font-size:22px; }
+.table-wrap { overflow:auto; border:1px solid var(--line); border-radius:8px; }
+table { width:100%; border-collapse:collapse; min-width:720px; background:#fff; }
+th, td { text-align:left; border-bottom:1px solid var(--line); padding:10px 12px; vertical-align:top; font-size:14px; }
+th { background:#f0f4f2; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0; }
+tr:last-child td { border-bottom:0; }
+.pill { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; background:#eef5f4; color:var(--accent); font-size:12px; font-weight:800; }
+.empty-state { color:var(--muted); background:#f0f4f2; border-radius:6px; padding:14px; }
+.error-state { color:#7f1d1d; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; padding:14px; font-weight:650; }
+.mono { font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size:12px; }
 progress { width:100%; height:12px; }
 video { width:100%; max-height:420px; background:#111; border-radius:8px; }
 @media (max-width: 780px) { .topbar { align-items:flex-start; height:auto; padding:14px; flex-wrap:wrap; } .grid { grid-template-columns:1fr; } .auth h1 { font-size:36px; } }
@@ -446,15 +464,204 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 async function loadPanels() {
   for (const panel of $$("[data-load]")) {
-    const output = panel.querySelector(".json-output") || panel;
-    try {
-      const response = await fetch(panel.dataset.load, { headers: { accept: "application/json" } });
-      const json = await response.json();
-      output.textContent = JSON.stringify(json, null, 2);
-    } catch (error) {
-      output.textContent = error.message || String(error);
-    }
+    await loadPanel(panel);
   }
+}
+
+async function loadPanel(panel) {
+  const output = panel.querySelector(".json-output") || panel;
+  try {
+    const response = await fetch(panel.dataset.load, { headers: { accept: "application/json" } });
+    const json = await response.json();
+    if (!response.ok) throw new Error(json?.error?.message || "Request failed with status " + response.status);
+    output.outerHTML = renderData(panel.dataset.load || "", json);
+  } catch (error) {
+    output.outerHTML = '<div class="error-state">' + escapeHtml(error.message || String(error)) + '</div>';
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return "-";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size = size / 1024; unit += 1; }
+  return size.toFixed(unit ? 1 : 0) + " " + units[unit];
+}
+
+function pill(value) {
+  return '<span class="pill">' + escapeHtml(value || "-") + '</span>';
+}
+
+function emptyState(message) {
+  return '<div class="empty-state">' + escapeHtml(message) + '</div>';
+}
+
+function table(headers, rows) {
+  if (!rows.length) return emptyState("No records found.");
+  return '<div class="table-wrap"><table><thead><tr>' + headers.map((header) => '<th>' + escapeHtml(header) + '</th>').join("") + '</tr></thead><tbody>' + rows.join("") + '</tbody></table></div>';
+}
+
+function td(value, className) {
+  return '<td' + (className ? ' class="' + className + '"' : "") + '>' + value + '</td>';
+}
+
+function renderData(endpoint, json) {
+  if (json.total_meetings || json.failed_processing_jobs) return renderDashboard(json);
+  if (json.google_oauth_configured !== undefined) return renderSystemStatus(json);
+  if (json.meetings) return renderMeetings(json.meetings);
+  if (json.recordings) return renderRecordings(json.recordings);
+  if (json.users) return renderUsers(json.users);
+  if (json.action_items) return renderActionItems(json.action_items);
+  if (json.audit_logs) return renderAuditLogs(json.audit_logs);
+  if (json.jobs) return renderJobs(json.jobs);
+  if (json.settings) return renderSettings(json.settings);
+  if (json.integrations || json.required_secrets) return renderIntegrations(json);
+  if (json.usage) return renderUsage(json.usage);
+  if (json.transcripts || endpoint.includes("storage-usage")) return renderStorage(json);
+  if (json.results) return renderSearchResults(json);
+  return '<pre class="json-output">' + escapeHtml(JSON.stringify(json, null, 2)) + '</pre>';
+}
+
+function renderDashboard(json) {
+  const cards = [
+    ["Total meetings", json.total_meetings?.count ?? 0],
+    ["Recordings", json.recordings?.count ?? 0],
+    ["Recording hours", ((Number(json.recordings?.durationSeconds || 0) / 3600).toFixed(1))],
+    ["Failed jobs", json.failed_processing_jobs?.count ?? 0]
+  ];
+  return '<div class="status-grid">' + cards.map(([label, value]) => '<div class="status-card"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(value) + '</strong></div>').join("") + '</div>' + (json.configuration ? renderSystemStatus(json.configuration) : "");
+}
+
+function renderSystemStatus(json) {
+  const checks = [
+    ["Google OAuth", json.google_oauth_configured],
+    ["Workers AI", json.cloudflare_workers_ai_configured],
+    ["Claude API", json.claude_configured]
+  ];
+  const status = '<div class="status-grid">' + checks.map(([label, ok]) => '<div class="status-card"><span>' + escapeHtml(label) + '</span><strong>' + (ok ? "Configured" : "Missing") + '</strong></div>').join("") + '</div>';
+  const models = '<p class="mono">Transcription: ' + escapeHtml(json.transcription_model) + '<br>Claude: ' + escapeHtml(json.claude_model) + '</p>';
+  const actions = json.required_action?.length ? '<div class="notice">' + json.required_action.map(escapeHtml).join("<br>") + '</div>' : '<div class="empty-state">All required production configuration is present.</div>';
+  return status + models + actions;
+}
+
+function renderMeetings(meetings) {
+  return table(["Title", "Date", "Owner", "Platform", "Source", "Status"], meetings.map((meeting) => '<tr>' +
+    td('<a href="/meetings/' + encodeURIComponent(meeting.id) + '">' + escapeHtml(meeting.title) + '</a>') +
+    td(escapeHtml(formatDate(meeting.meeting_datetime))) +
+    td(escapeHtml(meeting.owner_email || meeting.owner_user_id || "-")) +
+    td(pill(meeting.platform)) +
+    td(escapeHtml(meeting.source_type || "-")) +
+    td(pill(meeting.processing_status)) +
+  '</tr>'));
+}
+
+function renderRecordings(recordings) {
+  return table(["File", "Meeting", "Owner", "Type", "Size", "Status", "Error"], recordings.map((recording) => '<tr>' +
+    td('<a href="/meetings/' + encodeURIComponent(recording.meeting_id) + '">' + escapeHtml(recording.original_filename || recording.id) + '</a>') +
+    td(escapeHtml(recording.meeting_title || "-")) +
+    td(escapeHtml(recording.owner_email || recording.owner_user_id || "-")) +
+    td(pill(recording.source_type)) +
+    td(escapeHtml(formatBytes(recording.file_size))) +
+    td(pill(recording.processing_status)) +
+    td(escapeHtml(recording.error_message || "-")) +
+  '</tr>'));
+}
+
+function renderUsers(users) {
+  return table(["Email", "Name", "Approval", "Roles", "Last login"], users.map((user) => '<tr>' +
+    td(escapeHtml(user.email)) +
+    td(escapeHtml(user.name || "-")) +
+    td(pill(user.approvalStatus || user.approval_status)) +
+    td(escapeHtml(user.roles || "-")) +
+    td(escapeHtml(formatDate(user.lastLoginAt || user.last_login_at))) +
+  '</tr>'));
+}
+
+function renderActionItems(items) {
+  return table(["Task", "Meeting", "Assignee", "Due", "Priority", "Status"], items.map((item) => '<tr>' +
+    td(escapeHtml(item.task)) +
+    td('<a href="/meetings/' + encodeURIComponent(item.meeting_id) + '">' + escapeHtml(item.meeting_title || item.meeting_id) + '</a>') +
+    td(escapeHtml(item.assignee_text || "-")) +
+    td(escapeHtml(item.due_date || "-")) +
+    td(pill(item.priority)) +
+    td(pill(item.status)) +
+  '</tr>'));
+}
+
+function renderAuditLogs(logs) {
+  return table(["Time", "Action", "Target", "Actor", "Metadata"], logs.map((log) => '<tr>' +
+    td(escapeHtml(formatDate(log.created_at))) +
+    td(pill(log.action)) +
+    td(escapeHtml((log.target_type || "-") + (log.target_id ? ": " + log.target_id : ""))) +
+    td(escapeHtml(log.actor_user_id || "-")) +
+    td(escapeHtml(log.metadata_json || "{}"), "mono") +
+  '</tr>'));
+}
+
+function renderJobs(jobs) {
+  return table(["Created", "Type", "Status", "Attempts", "Meeting", "Error"], jobs.map((job) => '<tr>' +
+    td(escapeHtml(formatDate(job.created_at))) +
+    td(escapeHtml(job.job_type)) +
+    td(pill(job.status)) +
+    td(escapeHtml(job.attempts || 0)) +
+    td(escapeHtml(job.meeting_id || "-")) +
+    td(escapeHtml(job.error_message || "-")) +
+  '</tr>'));
+}
+
+function renderSettings(settings) {
+  return table(["Setting", "Value", "Updated"], settings.map((setting) => '<tr>' +
+    td(escapeHtml(setting.key)) +
+    td(escapeHtml(setting.value_json), "mono") +
+    td(escapeHtml(formatDate(setting.updated_at))) +
+  '</tr>'));
+}
+
+function renderIntegrations(json) {
+  const secretRows = Object.entries(json.required_secrets || {}).map(([key, value]) => '<tr>' + td(escapeHtml(key)) + td(pill(value ? "configured" : "missing")) + td("") + '</tr>');
+  const integrationRows = (json.integrations || []).map((integration) => '<tr>' + td(escapeHtml(integration.provider)) + td(pill(integration.status)) + td(escapeHtml(integration.config_json || "{}"), "mono") + '</tr>');
+  return table(["Integration", "Status", "Details"], secretRows.concat(integrationRows));
+}
+
+function renderUsage(usage) {
+  return table(["Provider", "Model", "Operation", "Calls", "Input", "Output", "Cost"], usage.map((row) => '<tr>' +
+    td(escapeHtml(row.provider)) +
+    td(escapeHtml(row.model || "-")) +
+    td(escapeHtml(row.operation)) +
+    td(escapeHtml(row.calls || 0)) +
+    td(escapeHtml(row.input_tokens || 0)) +
+    td(escapeHtml(row.output_tokens || 0)) +
+    td(escapeHtml(row.cost_estimate_usd || 0)) +
+  '</tr>'));
+}
+
+function renderStorage(json) {
+  return '<div class="status-grid">' +
+    '<div class="status-card"><span>Recording objects</span><strong>' + escapeHtml(json.recordings?.count || 0) + '</strong></div>' +
+    '<div class="status-card"><span>Recording bytes</span><strong>' + escapeHtml(formatBytes(json.recordings?.bytes)) + '</strong></div>' +
+    '<div class="status-card"><span>Transcripts</span><strong>' + escapeHtml(json.transcripts?.count || 0) + '</strong></div>' +
+    '<div class="status-card"><span>Transcript words</span><strong>' + escapeHtml(json.transcripts?.word_count || 0) + '</strong></div>' +
+  '</div>';
+}
+
+function renderSearchResults(json) {
+  return table(["Meeting", "Date", "Snippet"], (json.results || []).map((result) => '<tr>' +
+    td('<a href="/meetings/' + encodeURIComponent(result.id) + '">' + escapeHtml(result.title) + '</a>') +
+    td(escapeHtml(formatDate(result.meeting_datetime))) +
+    td(escapeHtml(result.transcript_preview || result.parsed_notes_json || "-")) +
+  '</tr>'));
 }
 
 function parseParticipants(text) {
@@ -475,13 +682,19 @@ async function uploadBlob(blob, metadata, filename) {
   });
   const uploadInfo = await uploadUrlResponse.json();
   if (!uploadUrlResponse.ok) throw new Error(JSON.stringify(uploadInfo));
-  await fetch(uploadInfo.upload_url, { method: "PUT", body: blob, headers: { "content-type": blob.type || "application/octet-stream" } });
+  const putResponse = await fetch(uploadInfo.upload_url, { method: "PUT", body: blob, headers: { "content-type": blob.type || "application/octet-stream" } });
+  if (!putResponse.ok) {
+    const putText = await putResponse.text();
+    throw new Error(putText || "Recording upload failed with status " + putResponse.status);
+  }
   const completeResponse = await fetch("/api/recordings/complete-upload", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ upload_session_id: uploadInfo.upload_session_id })
   });
-  return completeResponse.json();
+  const completeJson = await completeResponse.json();
+  if (!completeResponse.ok) throw new Error(JSON.stringify(completeJson));
+  return completeJson;
 }
 
 $("#uploadForm")?.addEventListener("submit", async (event) => {
@@ -521,15 +734,15 @@ $("#manualTranscriptForm")?.addEventListener("submit", async (event) => {
   const form = event.currentTarget;
   const result = $("#manualTranscriptResult");
   try {
+    const payload = { transcript_text: form.transcript_text.value };
+    if (form.language.value) payload.language = form.language.value;
     const response = await fetch("/api/meetings/" + encodeURIComponent(form.dataset.meetingId) + "/transcript/manual-upload", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        transcript_text: form.transcript_text.value,
-        language: form.language.value || null
-      })
+      body: JSON.stringify(payload)
     });
     const json = await response.json();
+    if (!response.ok) throw new Error(JSON.stringify(json));
     result.textContent = JSON.stringify(json, null, 2);
   } catch (error) {
     result.textContent = error.message || String(error);
@@ -551,6 +764,7 @@ function updateTimer() {
 $("#startRecording")?.addEventListener("click", async () => {
   const form = $("#screenRecorderForm");
   const result = $("#screenRecordingResult");
+  if (!form.reportValidity()) return;
   if (!form.consent.checked) { result.textContent = "Consent confirmation is required."; return; }
   try {
     const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
@@ -599,4 +813,21 @@ $("#resumeRecording")?.addEventListener("click", () => { recorder?.resume(); set
 $("#stopRecording")?.addEventListener("click", () => recorder?.stop());
 setRecorderButtons("idle");
 loadPanels();
+
+for (const toolbar of $$(".toolbar")) {
+  const panel = toolbar.parentElement?.querySelector("[data-load-base]");
+  if (!panel) continue;
+  const reload = () => {
+    const url = new URL(panel.dataset.loadBase, window.location.origin);
+    for (const input of toolbar.querySelectorAll("[data-filter]")) {
+      if (input.value) url.searchParams.set(input.dataset.filter, input.value);
+    }
+    panel.dataset.load = url.pathname + url.search;
+    const existing = panel.querySelector(".table-wrap, .empty-state, .error-state, .json-output, .status-grid");
+    if (existing) existing.outerHTML = '<div class="json-output">Loading...</div>';
+    loadPanel(panel);
+  };
+  toolbar.addEventListener("input", reload);
+  toolbar.addEventListener("change", reload);
+}
 `;

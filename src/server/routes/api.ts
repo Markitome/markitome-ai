@@ -594,29 +594,78 @@ apiRoutes.get("/admin/system-status", requireRoles(["super_admin"]), async (c) =
 });
 
 apiRoutes.get("/admin/meetings", requireRoles(["admin", "super_admin"]), async (c) => {
-  const meetings = await c.env.DB.prepare("SELECT * FROM meetings WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 200").all();
+  const query = parseQuery(
+    c,
+    z.object({
+      employee: z.string().optional(),
+      platform: sourceTypeSchema.optional(),
+      source_type: sourceTypeSchema.optional(),
+      processing_status: z.string().optional(),
+      keyword: z.string().optional()
+    })
+  );
+  const filters: string[] = ["m.deleted_at IS NULL"];
+  const binds: unknown[] = [];
+  if (query.employee) {
+    filters.push("m.owner_user_id = ?");
+    binds.push(query.employee);
+  }
+  if (query.platform) {
+    filters.push("m.platform = ?");
+    binds.push(query.platform);
+  }
+  if (query.source_type) {
+    filters.push("m.source_type = ?");
+    binds.push(query.source_type);
+  }
+  if (query.processing_status) {
+    filters.push("m.processing_status = ?");
+    binds.push(query.processing_status);
+  }
+  if (query.keyword) {
+    filters.push("(m.title LIKE ? OR m.description LIKE ? OR u.email LIKE ?)");
+    binds.push(`%${query.keyword}%`, `%${query.keyword}%`, `%${query.keyword}%`);
+  }
+  const meetings = await c.env.DB.prepare(
+    `SELECT m.*, u.email AS owner_email
+     FROM meetings m
+     INNER JOIN users u ON u.id = m.owner_user_id
+     WHERE ${filters.join(" AND ")}
+     ORDER BY m.created_at DESC
+     LIMIT 200`
+  )
+    .bind(...binds)
+    .all();
   return c.json({ meetings: meetings.results });
 });
 
 apiRoutes.get("/admin/recordings", requireRoles(["admin", "super_admin"]), async (c) => {
-  const recordings = await c.env.DB.prepare("SELECT * FROM recordings WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 200").all();
+  const { recordings } = await listRecordings(c, true, 200);
   return c.json({ recordings: recordings.results });
 });
 
 apiRoutes.get("/recordings", async (c) => {
+  const { recordings } = await listRecordings(c, false, 100);
+  return c.json({ recordings: recordings.results });
+});
+
+apiRoutes.get("/action-items", async (c) => {
   const user = c.get("user");
-  const filters = isAdmin(user) ? "r.deleted_at IS NULL" : "r.deleted_at IS NULL AND r.owner_user_id = ?";
-  const recordings = await c.env.DB.prepare(
-    `SELECT r.*, m.title AS meeting_title, m.meeting_datetime
-     FROM recordings r
-     INNER JOIN meetings m ON m.id = r.meeting_id
-     WHERE ${filters}
-     ORDER BY r.created_at DESC
+  const accessSql = isAdmin(user)
+    ? "1 = 1"
+    : "(m.owner_user_id = ? OR m.id IN (SELECT meeting_id FROM share_permissions WHERE shared_with_user_id = ?))";
+  const binds = isAdmin(user) ? [] : [user.id, user.id];
+  const items = await c.env.DB.prepare(
+    `SELECT ai.*, m.title AS meeting_title, m.meeting_datetime
+     FROM action_items ai
+     INNER JOIN meetings m ON m.id = ai.meeting_id
+     WHERE m.deleted_at IS NULL AND ${accessSql}
+     ORDER BY COALESCE(ai.due_date, ai.created_at) ASC
      LIMIT 100`
   )
-    .bind(...(isAdmin(user) ? [] : [user.id]))
+    .bind(...binds)
     .all();
-  return c.json({ recordings: recordings.results });
+  return c.json({ action_items: items.results });
 });
 
 apiRoutes.get("/admin/users/:id/library", requireRoles(["admin", "super_admin"]), async (c) => {
@@ -634,6 +683,50 @@ apiRoutes.get("/admin/audit-logs", requireRoles(["admin", "super_admin"]), async
 
 apiRoutes.get("/admin/processing-failures", requireRoles(["admin", "super_admin"]), async (c) => {
   const jobs = await c.env.DB.prepare("SELECT * FROM processing_jobs WHERE status = 'failed' ORDER BY updated_at DESC LIMIT 100").all();
+  return c.json({ jobs: jobs.results });
+});
+
+apiRoutes.get("/admin/system-settings", requireRoles(["super_admin"]), async (c) => {
+  const settings = await c.env.DB.prepare("SELECT key, value_json, updated_at FROM system_settings ORDER BY key ASC").all();
+  return c.json({ settings: settings.results });
+});
+
+apiRoutes.get("/admin/integrations", requireRoles(["super_admin"]), async (c) => {
+  const integrations = await c.env.DB.prepare("SELECT provider, status, config_json, updated_at FROM integrations WHERE deleted_at IS NULL ORDER BY provider ASC").all();
+  return c.json({
+    integrations: integrations.results,
+    required_secrets: {
+      google_oauth: Boolean(c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET),
+      anthropic: Boolean(c.env.ANTHROPIC_API_KEY),
+      microsoft: Boolean(c.env.MICROSOFT_CLIENT_ID && c.env.MICROSOFT_CLIENT_SECRET && c.env.MICROSOFT_TENANT_ID),
+      zoom: Boolean(c.env.ZOOM_CLIENT_ID && c.env.ZOOM_CLIENT_SECRET && c.env.ZOOM_ACCOUNT_ID),
+      webhook_secret: Boolean(c.env.WEBHOOK_SECRET)
+    }
+  });
+});
+
+apiRoutes.get("/admin/api-usage", requireRoles(["super_admin"]), async (c) => {
+  const usage = await c.env.DB.prepare(
+    `SELECT provider, model, operation, COUNT(*) AS calls, SUM(input_tokens) AS input_tokens,
+            SUM(output_tokens) AS output_tokens, SUM(cost_estimate_usd) AS cost_estimate_usd
+     FROM api_usage_logs
+     GROUP BY provider, model, operation
+     ORDER BY calls DESC
+     LIMIT 100`
+  ).all();
+  return c.json({ usage: usage.results });
+});
+
+apiRoutes.get("/admin/storage-usage", requireRoles(["super_admin"]), async (c) => {
+  const [recordings, transcripts] = await Promise.all([
+    c.env.DB.prepare("SELECT COUNT(*) AS count, SUM(file_size) AS bytes FROM recordings WHERE deleted_at IS NULL").first(),
+    c.env.DB.prepare("SELECT COUNT(*) AS count, SUM(word_count) AS word_count FROM transcripts").first()
+  ]);
+  return c.json({ recordings, transcripts });
+});
+
+apiRoutes.get("/admin/queue-logs", requireRoles(["super_admin"]), async (c) => {
+  const jobs = await c.env.DB.prepare("SELECT * FROM processing_jobs ORDER BY created_at DESC LIMIT 150").all();
   return c.json({ jobs: jobs.results });
 });
 
@@ -795,6 +888,63 @@ async function getUploadSession(env: Env, sessionId: string): Promise<{
     }>();
   if (!session) throw new ApiError(404, "not_found", "Upload session not found.");
   return session;
+}
+
+async function listRecordings(
+  c: AppContext,
+  forceAdminScope: boolean,
+  limit: number
+): Promise<{ recordings: D1Result<Record<string, unknown>> }> {
+  const user = c.get("user");
+  const query = parseQuery(
+    c,
+    z.object({
+      employee: z.string().optional(),
+      platform: sourceTypeSchema.optional(),
+      source_type: sourceTypeSchema.optional(),
+      processing_status: z.string().optional(),
+      keyword: z.string().optional()
+    })
+  );
+  const adminScope = forceAdminScope || isAdmin(user);
+  const filters: string[] = ["r.deleted_at IS NULL"];
+  const binds: unknown[] = [];
+  if (!adminScope) {
+    filters.push("(r.owner_user_id = ? OR r.meeting_id IN (SELECT meeting_id FROM share_permissions WHERE shared_with_user_id = ?))");
+    binds.push(user.id, user.id);
+  }
+  if (query.employee && isAdmin(user)) {
+    filters.push("r.owner_user_id = ?");
+    binds.push(query.employee);
+  }
+  if (query.platform) {
+    filters.push("r.platform = ?");
+    binds.push(query.platform);
+  }
+  if (query.source_type) {
+    filters.push("r.source_type = ?");
+    binds.push(query.source_type);
+  }
+  if (query.processing_status) {
+    filters.push("r.processing_status = ?");
+    binds.push(query.processing_status);
+  }
+  if (query.keyword) {
+    filters.push("(r.original_filename LIKE ? OR m.title LIKE ? OR u.email LIKE ?)");
+    binds.push(`%${query.keyword}%`, `%${query.keyword}%`, `%${query.keyword}%`);
+  }
+  const recordings = await c.env.DB.prepare(
+    `SELECT r.*, m.title AS meeting_title, m.meeting_datetime, u.email AS owner_email
+     FROM recordings r
+     INNER JOIN meetings m ON m.id = r.meeting_id
+     INNER JOIN users u ON u.id = r.owner_user_id
+     WHERE ${filters.join(" AND ")}
+     ORDER BY r.created_at DESC
+     LIMIT ?`
+  )
+    .bind(...binds, limit)
+    .all<Record<string, unknown>>();
+  return { recordings };
 }
 
 function validateUploadFile(filename: string, fileSize: number): void {
