@@ -27,6 +27,7 @@ export function renderPage(props: PageProps): string {
 function App({ user, path }: PageProps) {
   if (path === "/login") return <LoginPage />;
   if (path === "/unauthorized") return <UnauthorizedPage />;
+  if (path === "/setup-required") return <SetupRequiredPage />;
   if (!user) return <LoginPage />;
   const page = selectPage(path, user);
   return (
@@ -105,6 +106,20 @@ function UnauthorizedPage() {
         <p className="eyebrow">Access pending</p>
         <h1>Unauthorized</h1>
         <p>Normal access is restricted to @markitome.com accounts unless an admin approves an external user.</p>
+        <a className="primary" href="/login">Back to login</a>
+      </section>
+    </main>
+  );
+}
+
+function SetupRequiredPage() {
+  return (
+    <main className="auth">
+      <section>
+        <p className="eyebrow">Setup required</p>
+        <h1>Google login is not configured</h1>
+        <p>Set the production Google OAuth secrets in Cloudflare Workers, then retry login.</p>
+        <pre className="json-output">npx wrangler secret put GOOGLE_CLIENT_ID{"\n"}npx wrangler secret put GOOGLE_CLIENT_SECRET</pre>
         <a className="primary" href="/login">Back to login</a>
       </section>
     </main>

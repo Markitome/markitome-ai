@@ -19,7 +19,7 @@ export const authRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>()
 
 authRoutes.get("/login", async (c) => {
   if (!c.env.GOOGLE_CLIENT_ID) {
-    throw new ApiError(500, "oauth_not_configured", "GOOGLE_CLIENT_ID is not configured.");
+    return c.redirect("/setup-required?missing=GOOGLE_CLIENT_ID");
   }
 
   const state = crypto.randomUUID();
@@ -54,7 +54,7 @@ authRoutes.get("/callback", async (c) => {
     throw new ApiError(400, "invalid_oauth_state", "OAuth callback state could not be verified.");
   }
   if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) {
-    throw new ApiError(500, "oauth_not_configured", "Google OAuth secrets are not configured.");
+    return c.redirect("/setup-required?missing=GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET");
   }
 
   const origin = new URL(c.req.url).origin;
