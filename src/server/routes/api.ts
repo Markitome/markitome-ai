@@ -589,7 +589,7 @@ apiRoutes.get("/integrations/google-calendar/connect", async (c) => {
     path: "/",
     maxAge: 600
   });
-  const redirectUri = `${new URL(c.req.url).origin}/api/integrations/google-calendar/callback`;
+  const redirectUri = `${new URL(c.req.url).origin}/api/auth/callback`;
   const params = new URLSearchParams({
     client_id: c.env.GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,

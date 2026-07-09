@@ -1,12 +1,16 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { AppVariables, Env, RoleName } from "../../types";
 import { ApiError } from "../http/errors";
 import { id } from "../utils/crypto";
-import { createSessionToken, sessionCookieName } from "./session";
+import { createSessionToken, sessionCookieName, verifySessionToken } from "./session";
 import { loadUser } from "./rbac";
 
 const oauthStateCookie = "mt_oauth_state";
+const googleCalendarStateCookie = "mt_google_calendar_state";
+const googleCalendarScope = "https://www.googleapis.com/auth/calendar.readonly";
+
+type AuthContext = Context<{ Bindings: Env; Variables: AppVariables }>;
 
 interface GoogleUserInfo {
   email?: string;
@@ -48,6 +52,11 @@ authRoutes.get("/callback", async (c) => {
   const code = c.req.query("code");
   const state = c.req.query("state");
   const expectedState = getCookie(c, oauthStateCookie);
+  const expectedCalendarState = getCookie(c, googleCalendarStateCookie);
+  if (code && state && expectedCalendarState && state === expectedCalendarState) {
+    deleteCookie(c, googleCalendarStateCookie, { path: "/" });
+    return completeGoogleCalendarOAuth(c, code);
+  }
   deleteCookie(c, oauthStateCookie, { path: "/" });
 
   if (!code || !state || state !== expectedState) {
@@ -153,12 +162,100 @@ authRoutes.post("/logout", (c) => {
 authRoutes.get("/me", async (c) => {
   const cookie = getCookie(c, sessionCookieName);
   if (!cookie) return c.json({ user: null });
-  const { verifySessionToken } = await import("./session");
   const payload = await verifySessionToken(c.env, cookie);
   if (!payload) return c.json({ user: null });
   const user = await loadUser(c.env, payload.userId);
   return c.json({ user });
 });
+
+async function completeGoogleCalendarOAuth(c: AuthContext, code: string): Promise<Response> {
+  if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) {
+    return c.redirect("/setup-required?missing=GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET");
+  }
+
+  const sessionPayload = await verifySessionToken(c.env, getCookie(c, sessionCookieName));
+  if (!sessionPayload) return c.redirect("/login");
+  const user = await loadUser(c.env, sessionPayload.userId);
+  if (!user || user.approvalStatus !== "approved") return c.redirect("/unauthorized");
+
+  const origin = new URL(c.req.url).origin;
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code,
+      client_id: c.env.GOOGLE_CLIENT_ID,
+      client_secret: c.env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: `${origin}/api/auth/callback`,
+      grant_type: "authorization_code"
+    })
+  });
+
+  if (!tokenResponse.ok) {
+    throw new ApiError(401, "calendar_oauth_exchange_failed", "Google Calendar OAuth token exchange failed.");
+  }
+
+  const tokenJson = (await tokenResponse.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  };
+  if (!tokenJson.access_token) {
+    throw new ApiError(401, "calendar_missing_access_token", "Google did not return a Calendar access token.");
+  }
+
+  const integrationId = `integration_google_calendar_${user.id}`;
+  const existing = await c.env.DB.prepare("SELECT config_json FROM integrations WHERE id = ?")
+    .bind(integrationId)
+    .first<{ config_json: string }>();
+  const existingConfig = parseIntegrationConfig(existing?.config_json);
+  const now = new Date().toISOString();
+  const config = {
+    ...existingConfig,
+    user_id: user.id,
+    email: user.email,
+    scope: tokenJson.scope ?? googleCalendarScope,
+    access_token: tokenJson.access_token,
+    refresh_token: tokenJson.refresh_token ?? existingConfig.refresh_token ?? null,
+    expires_at: new Date(Date.now() + (tokenJson.expires_in ?? 3600) * 1000).toISOString(),
+    connected_at: existingConfig.connected_at ?? now,
+    updated_at: now
+  };
+
+  await c.env.DB.prepare(
+    `INSERT INTO integrations (id, provider, status, config_json, created_at, updated_at)
+     VALUES (?, 'google_calendar', 'enabled', ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET status = 'enabled', config_json = excluded.config_json, updated_at = excluded.updated_at`
+  )
+    .bind(integrationId, JSON.stringify(config), now, now)
+    .run();
+
+  await c.env.DB.prepare(
+    `INSERT INTO audit_logs (id, actor_user_id, target_type, target_id, action, ip_address, user_agent, metadata_json, created_at)
+     VALUES (?, ?, 'integration', 'google_calendar', 'integration_change', ?, ?, ?, ?)`
+  )
+    .bind(
+      id("audit"),
+      user.id,
+      c.req.header("cf-connecting-ip") ?? null,
+      c.req.header("user-agent") ?? null,
+      JSON.stringify({ connected: true, scope: config.scope }),
+      now
+    )
+    .run();
+
+  return c.redirect("/calendar?connected=google_calendar");
+}
+
+function parseIntegrationConfig(configJson: string | null | undefined): Record<string, string | null> {
+  if (!configJson) return {};
+  try {
+    return JSON.parse(configJson) as Record<string, string | null>;
+  } catch {
+    return {};
+  }
+}
 
 async function ensureRole(env: Env, userId: string, roleName: RoleName): Promise<void> {
   const role = await env.DB.prepare("SELECT id FROM roles WHERE name = ?").bind(roleName).first<{ id: string }>();
