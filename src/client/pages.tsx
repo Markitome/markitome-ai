@@ -218,7 +218,7 @@ function CalendarPage() {
       <section className="card" data-load="/api/integrations/google-calendar/status"><h2>Connection</h2><div className="loading">Loading status...</div></section>
       <section className="card">
         <div className="cardHeader"><div><p className="eyebrow">Upcoming</p><h2>Next 7 days</h2></div><div className="actionRow"><button id="importCalendarEvents">Import as meeting notes</button><a className="buttonPrimary" href="/screen-recording">Start recorder</a></div></div>
-        <div className="notice">Cloudflare-native capture uses your browser's screen or tab recorder. The app does not silently join meetings or run external meeting bots.</div>
+        <div className="notice">Import a calendar event, open the meeting note, then start the consent-first recording bot from that meeting page. Hosts may still need to admit the bot.</div>
         <div data-load="/api/integrations/google-calendar/events?days=7"><div className="loading">Loading calendar events...</div></div>
         <pre id="calendarImportResult" className="result"></pre>
       </section>
@@ -532,7 +532,7 @@ function renderDashboard(json) {
 }
 
 function renderSystemStatus(json) {
-  const checks = [["Google OAuth", json.google_oauth_configured], ["Workers AI", json.cloudflare_workers_ai_configured], ["Claude API", json.claude_configured], ["Cloudflare recorder", true]];
+  const checks = [["Google OAuth", json.google_oauth_configured], ["Workers AI", json.cloudflare_workers_ai_configured], ["Claude API", json.claude_configured], ["Cloudflare recorder", true], ["Meeting bot container", json.meeting_bot_configured]];
   return '<div class="statusGrid">' + checks.map(([label, ok]) => '<div class="statusCard"><span>' + escapeHtml(label) + '</span><strong>' + (ok ? "Configured" : "Missing") + '</strong></div>').join("") + '</div>' + (json.required_action?.length ? '<div class="notice">' + json.required_action.map(escapeHtml).join("<br>") + '</div>' : "");
 }
 
@@ -602,7 +602,13 @@ function renderMeetingBundle(meeting) {
   const notes = safeJson(meeting.ai_notes?.parsed_notes_json);
   const hero = '<div class="meetingHero"><h2>' + escapeHtml(meeting.title || "Untitled meeting") + '</h2><div class="meetingMeta">' + pill(meeting.platform) + pill(meeting.source_type) + pill(meeting.processing_status) + '<span>' + escapeHtml(formatDate(meeting.meeting_datetime)) + '</span><span>' + escapeHtml(meeting.owner_email || "") + '</span></div></div>';
   const prep = '<div class="notesLayout"><section><h2>Agenda</h2><div class="noteBox">' + escapeHtml(meeting.agenda || "No agenda yet.") + '</div></section><section><h2>Manual notes</h2><div class="noteBox">' + escapeHtml(meeting.manual_notes || "No manual notes yet.") + '</div></section></div>';
-  return hero + '<div class="statusGrid"><div class="statusCard"><span>Participants</span><strong>' + escapeHtml(participants.length) + '</strong></div><div class="statusCard"><span>Recordings</span><strong>' + escapeHtml(recordings.length) + '</strong></div><div class="statusCard"><span>Action items</span><strong>' + escapeHtml(actions.length) + '</strong></div><div class="statusCard"><span>Decisions</span><strong>' + escapeHtml(decisions.length) + '</strong></div></div>' + prep + '<section><h2>AI summary</h2><div class="noteBox">' + escapeHtml(notes?.summary || meeting.ai_notes?.rendered_markdown || "AI notes will appear after transcription completes.") + '</div></section>' + renderSectionList("Participants", participants, (item) => escapeHtml(item.name || item.email || "Participant"), (item) => escapeHtml(item.email || "")) + renderSectionList("Suggested action items", actions, (item) => escapeHtml(item.task), (item) => [item.assignee_text, item.due_date, item.priority, item.status].filter(Boolean).map(escapeHtml).join(" · ")) + renderSectionList("Decisions", decisions, (item) => escapeHtml(item.decision), (item) => escapeHtml(item.owner_text || item.source_quote || "")) + renderSectionList("Topic overview", topics, (item) => escapeHtml(item.topic), (item) => escapeHtml(item.summary || "")) + renderSectionList("Recordings", recordings, (item) => escapeHtml(item.original_filename || item.id), (item) => [item.source_type, item.processing_status, formatBytes(item.file_size)].filter(Boolean).map(escapeHtml).join(" · ")) + '<section><h2>Transcript</h2><div class="noteBox">' + escapeHtml(meeting.transcript?.transcript_preview || "Transcript preview will appear after processing.") + '</div></section><section><h2>Follow-up email draft</h2><div class="noteBox">' + escapeHtml(notes?.follow_up_email_draft || "No follow-up draft yet.") + '</div></section>';
+  return hero + renderBotControls(meeting) + '<div class="statusGrid"><div class="statusCard"><span>Participants</span><strong>' + escapeHtml(participants.length) + '</strong></div><div class="statusCard"><span>Recordings</span><strong>' + escapeHtml(recordings.length) + '</strong></div><div class="statusCard"><span>Action items</span><strong>' + escapeHtml(actions.length) + '</strong></div><div class="statusCard"><span>Decisions</span><strong>' + escapeHtml(decisions.length) + '</strong></div></div>' + prep + '<section><h2>AI summary</h2><div class="noteBox">' + escapeHtml(notes?.summary || meeting.ai_notes?.rendered_markdown || "AI notes will appear after transcription completes.") + '</div></section>' + renderSectionList("Participants", participants, (item) => escapeHtml(item.name || item.email || "Participant"), (item) => escapeHtml(item.email || "")) + renderSectionList("Suggested action items", actions, (item) => escapeHtml(item.task), (item) => [item.assignee_text, item.due_date, item.priority, item.status].filter(Boolean).map(escapeHtml).join(" · ")) + renderSectionList("Decisions", decisions, (item) => escapeHtml(item.decision), (item) => escapeHtml(item.owner_text || item.source_quote || "")) + renderSectionList("Topic overview", topics, (item) => escapeHtml(item.topic), (item) => escapeHtml(item.summary || "")) + renderSectionList("Recordings", recordings, (item) => escapeHtml(item.original_filename || item.id), (item) => [item.source_type, item.processing_status, formatBytes(item.file_size)].filter(Boolean).map(escapeHtml).join(" · ")) + renderSectionList("Bot sessions", meeting.bot_sessions || [], (item) => escapeHtml(item.bot_display_name || item.id), (item) => [item.platform, item.status, item.error_message].filter(Boolean).map(escapeHtml).join(" · ")) + '<section><h2>Transcript</h2><div class="noteBox">' + escapeHtml(meeting.transcript?.transcript_preview || "Transcript preview will appear after processing.") + '</div></section><section><h2>Follow-up email draft</h2><div class="noteBox">' + escapeHtml(notes?.follow_up_email_draft || "No follow-up draft yet.") + '</div></section>';
+}
+
+function renderBotControls(meeting) {
+  const canUseBot = ["google_meet", "zoom", "microsoft_teams"].includes(meeting.platform);
+  if (!canUseBot) return "";
+  return '<section class="card"><div class="cardHeader"><div><p class="eyebrow">Recording bot</p><h2>Join and record</h2></div><span class="pill">Markitome AI Notetaker - Recording</span></div><div class="notice">Only start the bot after recording consent has been obtained. The bot joins as a visible participant and may need host admission.</div><form class="form flat botJoinForm" data-meeting-id="' + escapeHtml(meeting.id) + '" data-platform="' + escapeHtml(meeting.platform) + '"><label>Meeting URL<input name="meeting_url" type="url" required value="' + escapeHtml(meeting.meeting_url || "") + '" /></label><label>Maximum duration<select name="max_duration_seconds"><option value="3600">1 hour</option><option value="7200" selected>2 hours</option><option value="14400">4 hours</option><option value="28800">8 hours</option></select></label><label class="check"><input name="consent" type="checkbox" required /> I confirm recording consent has been obtained.</label><button type="submit">Start recording bot</button></form><pre class="result botJoinResult"></pre></section>';
 }
 
 function renderSectionList(title, items, titleSelector, detailSelector) {
@@ -729,6 +735,40 @@ $("#manualTranscriptForm")?.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(JSON.stringify(json));
     result.textContent = JSON.stringify(json, null, 2);
   } catch (error) { result.textContent = error.message || String(error); }
+});
+
+document.addEventListener("submit", async (event) => {
+  const form = event.target;
+  if (!form?.classList?.contains("botJoinForm")) return;
+  event.preventDefault();
+  const result = form.parentElement.querySelector(".botJoinResult");
+  const button = form.querySelector("button[type=submit]");
+  if (!form.reportValidity()) return;
+  if (!form.consent.checked) { result.textContent = "Consent confirmation is required."; return; }
+  button.disabled = true;
+  button.textContent = "Starting bot...";
+  try {
+    const response = await fetch("/api/bots/join-now", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        meeting_id: form.dataset.meetingId,
+        platform: form.dataset.platform,
+        meeting_url: form.meeting_url.value,
+        consent_status: "confirmed",
+        max_duration_seconds: Number(form.max_duration_seconds.value)
+      })
+    });
+    const json = await readApiResponse(response);
+    if (!response.ok) throw new Error(json?.error?.message || JSON.stringify(json));
+    result.textContent = JSON.stringify(json, null, 2);
+    button.textContent = "Bot requested";
+  } catch (error) {
+    result.textContent = error.message || String(error);
+    button.textContent = "Start recording bot";
+  } finally {
+    button.disabled = false;
+  }
 });
 
 let recorder, chunks = [], startedAt = 0, timerId = 0, stream;

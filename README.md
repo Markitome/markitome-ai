@@ -8,6 +8,7 @@ Internal AI meeting notetaker for Markitome Private Limited.
 - Database: Cloudflare D1 with Drizzle schema and migrations
 - Object storage: Cloudflare R2 for recordings and transcripts
 - Queues: Cloudflare Queues for transcription and Claude note generation
+- Meeting bot runtime: Cloudflare Containers running Chromium, PulseAudio, and FFmpeg
 - Search: D1 keyword search, with Vectorize binding prepared for semantic search
 
 ## Architecture
@@ -23,6 +24,17 @@ Core flow:
 5. A transcription provider writes transcript text to the `TRANSCRIPTS` R2 bucket.
 6. `AI_NOTES_QUEUE` calls Claude through `@anthropic-ai/sdk`.
 7. Structured notes, action items, decisions, topics, token usage, raw model output, and rendered Markdown are stored in D1.
+
+Meeting bot flow:
+
+1. A user imports or creates a Google Meet, Zoom, or Microsoft Teams meeting note.
+2. The meeting owner or an admin confirms recording consent and starts the bot.
+3. The Worker creates a `bot_sessions` row and a one-time signed R2 upload session.
+4. A Cloudflare Container opens the meeting URL in Chromium as `Markitome AI Notetaker - Recording`.
+5. The container records the visible browser session with FFmpeg and uploads the WebM back to the Worker.
+6. The Worker creates the recording row and sends it through the same transcription and Claude notes queues.
+
+Production bot joining may still require host admission, Google/Zoom/Microsoft app approval, tenant-level policies, meeting SDK/browser policy compliance, and recording-consent compliance.
 
 Claude is used only for reasoning and note generation. It is not used as the primary speech-to-text engine. The STT layer is behind `TranscriptionProvider` so Cloudflare Workers AI, Whisper-compatible APIs, or another provider can be added without changing meeting or notes logic.
 
@@ -42,6 +54,8 @@ npx wrangler vectorize create notetaker-meeting-search --dimensions=1024 --metri
 ```
 
 Update `wrangler.toml` with the real D1 `database_id`. Do not hardcode account IDs or secrets.
+
+Cloudflare Containers are required for the meeting bot. Wrangler builds `containers/meeting-bot/Dockerfile` during deployment, so Docker or a Docker-compatible CLI is required wherever `wrangler deploy` runs.
 
 ## Environment Variables
 
@@ -93,6 +107,14 @@ npm run typecheck
 npm run lint
 ```
 
+Local container development additionally requires Docker:
+
+```bash
+docker build -t markitome-meeting-bot ./containers/meeting-bot
+docker run --rm -p 8080:8080 markitome-meeting-bot
+curl http://localhost:8080/health
+```
+
 The local Worker serves:
 
 - UI: `http://localhost:8787`
@@ -110,6 +132,8 @@ curl https://notetaker.markitome.ai/health
 ## GitHub Actions
 
 `.github/workflows/deploy.yml` deploys on pushes to `main`.
+
+It also supports `workflow_dispatch` and the `feature/cloudflare-ai-notetaker` branch while the bot rollout is being tested.
 
 Required GitHub secrets:
 
@@ -147,7 +171,7 @@ Sensitive routes are protected with authentication and RBAC middleware. Meeting 
 
 ## Consent And Compliance
 
-The app does not implement silent recording.
+The app does not implement silent recording. Bot recording and browser screen recording require explicit consent confirmation before starting.
 
 Consent statuses:
 
@@ -160,6 +184,7 @@ Consent statuses:
 Controls:
 
 - Recording cannot start unless the employee confirms consent in the browser.
+- Bot recording cannot start unless consent is confirmed and the bot joins visibly as `Markitome AI Notetaker - Recording`.
 - Screen recording requires a consent confirmation checkbox.
 - Uploads require consent confirmation unless imported historically by an admin.
 - Consent confirmations are stored with actor and timestamp where recordings are created.
@@ -174,9 +199,32 @@ The super admin settings page is prepared for:
 - Allowed file types
 - Maximum upload size
 
-## Cloudflare-Native Recording
+## Cloudflare Container Meeting Bot
 
-The app does not run meeting bots or silently join calls. A true Google Meet, Zoom, or Teams participant bot requires a long-running browser with media capture, which is outside the Cloudflare Worker runtime. The supported capture path is employee-initiated browser recording.
+The bot is implemented in this repository under `containers/meeting-bot`. It does not depend on Recall.ai, Vexa, ScreenApp, or any other third-party bot API.
+
+Supported platforms:
+
+- Google Meet
+- Zoom
+- Microsoft Teams
+
+The bot container uses:
+
+- Chromium through Playwright
+- Xvfb virtual display
+- PulseAudio virtual audio sink
+- FFmpeg WebM recording
+- Worker-signed R2 upload URL
+
+Important limitations:
+
+- The host may need to admit the bot from the waiting room.
+- Google, Zoom, and Teams browser UIs can change; selectors may need maintenance.
+- Tenant policies can block anonymous/browser participants or recording.
+- Cloudflare Workers alone cannot run this bot; Cloudflare Containers are required.
+
+## Browser Screen Recording Fallback
 
 The `/screen-recording` page uses:
 

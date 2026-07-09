@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { ContainerProxy } from "@cloudflare/containers";
 import { getCookie } from "hono/cookie";
 import type { AppVariables, Env } from "./types";
 import { renderPage } from "./client/pages";
@@ -8,6 +9,8 @@ import { sessionCookieName, verifySessionToken } from "./server/auth/session";
 import { errorBoundary, handleError } from "./server/http/errors";
 import { apiRoutes } from "./server/routes/api";
 import { handleQueueBatch, type QueueJob } from "./server/queues/jobs";
+export { MeetingBotContainer } from "./server/bots/MeetingBotContainer";
+export { ContainerProxy };
 
 const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 

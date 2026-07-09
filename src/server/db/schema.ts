@@ -302,6 +302,31 @@ export const uploadSessions = sqliteTable(
   })
 );
 
+export const botSessions = sqliteTable(
+  "bot_sessions",
+  {
+    id: text("id").primaryKey(),
+    meetingId: text("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+    platform: text("platform").notNull(),
+    meetingUrl: text("meeting_url").notNull(),
+    botDisplayName: text("bot_display_name").notNull(),
+    status: text("status").notNull(),
+    joinTime: text("join_time"),
+    leaveTime: text("leave_time"),
+    recordingR2Key: text("recording_r2_key"),
+    uploadSessionId: text("upload_session_id").references(() => uploadSessions.id),
+    consentStatus: text("consent_status").notNull(),
+    errorMessage: text("error_message"),
+    ...timestamps
+  },
+  (table) => ({
+    meetingIdx: index("idx_bot_sessions_meeting_id").on(table.meetingId),
+    platformIdx: index("idx_bot_sessions_platform").on(table.platform),
+    statusIdx: index("idx_bot_sessions_status").on(table.status),
+    createdAtIdx: index("idx_bot_sessions_created_at").on(table.createdAt)
+  })
+);
+
 export const sharePermissions = sqliteTable(
   "share_permissions",
   {

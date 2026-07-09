@@ -1,3 +1,5 @@
+import type { MeetingBotContainer } from "./server/bots/MeetingBotContainer";
+
 export type RoleName = "super_admin" | "admin" | "employee";
 
 export type ConsentStatus = "not_required" | "pending" | "confirmed" | "rejected" | "unknown";
@@ -28,6 +30,7 @@ export interface Env {
   TRANSCRIPTION_QUEUE: Queue;
   AI_NOTES_QUEUE: Queue;
   MEETING_SEARCH?: VectorizeIndex;
+  MEETING_BOT?: DurableObjectNamespace<MeetingBotContainer>;
   APP_ENV: string;
   APP_NAME: string;
   APP_DOMAIN: string;

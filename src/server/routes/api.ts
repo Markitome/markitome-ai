@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { getContainer } from "@cloudflare/containers";
 import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import type { AppVariables, Env } from "../../types";
@@ -59,6 +60,94 @@ const uploadUrlSchema = z.object({
   meeting_url: z.string().url().optional().nullable(),
   consent_status: consentStatusSchema,
   historical_import_by_admin: z.boolean().optional().default(false)
+});
+
+const botPlatformSchema = z.enum(["google_meet", "zoom", "microsoft_teams"]);
+const botDisplayName = "Markitome AI Notetaker - Recording";
+
+const botJoinSchema = z.object({
+  meeting_id: z.string().min(1),
+  meeting_url: z.string().url(),
+  platform: botPlatformSchema,
+  consent_status: z.literal("confirmed"),
+  max_duration_seconds: z.number().int().min(60).max(8 * 60 * 60).optional()
+});
+
+apiRoutes.put("/bot-recordings/upload/:sessionId", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const token = c.req.query("token");
+  const session = await getUploadSession(c.env, sessionId);
+  if (!token || (await sha256(token)) !== session.tokenHash) throw new ApiError(403, "invalid_upload_token", "Upload token is invalid.");
+  if (new Date(session.expiresAt).getTime() < Date.now()) throw new ApiError(410, "upload_expired", "Upload URL has expired.");
+  await c.env.RECORDINGS.put(session.r2Key, c.req.raw.body, {
+    httpMetadata: { contentType: session.mimeType },
+    customMetadata: {
+      originalFilename: session.originalFilename,
+      uploadedBy: "meeting_bot"
+    }
+  });
+  await c.env.DB.prepare("UPDATE upload_sessions SET status = 'uploaded', updated_at = ? WHERE id = ?")
+    .bind(new Date().toISOString(), sessionId)
+    .run();
+  return c.json({ ok: true, upload_session_id: sessionId });
+});
+
+apiRoutes.post("/bot-recordings/complete-upload", async (c) => {
+  const token = c.req.query("token");
+  const input = await parseJson(c, z.object({ bot_session_id: z.string().min(1) }));
+  const botSession = await c.env.DB.prepare(
+    `SELECT bs.*, m.owner_user_id AS ownerUserId
+     FROM bot_sessions bs
+     INNER JOIN meetings m ON m.id = bs.meeting_id
+     WHERE bs.id = ?`
+  )
+    .bind(input.bot_session_id)
+    .first<{
+      id: string;
+      meeting_id: string;
+      platform: string;
+      consent_status: string;
+      upload_session_id: string;
+      ownerUserId: string;
+    }>();
+  if (!botSession) throw new ApiError(404, "not_found", "Bot session not found.");
+  const session = await getUploadSession(c.env, botSession.upload_session_id);
+  if (!token || (await sha256(token)) !== session.tokenHash) throw new ApiError(403, "invalid_upload_token", "Upload token is invalid.");
+  if (session.status !== "uploaded") throw new ApiError(400, "upload_incomplete", "Bot recording upload is not complete.");
+  const object = await c.env.RECORDINGS.head(session.r2Key);
+  const recordingId = id("recording");
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO recordings (
+        id, meeting_id, owner_user_id, source_type, platform, r2_bucket, r2_key, original_filename,
+        mime_type, file_size, consent_status, consent_confirmed_by_user_id, consent_confirmed_at,
+        processing_status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'RECORDINGS', ?, ?, ?, ?, ?, ?, ?, 'uploaded', ?, ?)`
+    ).bind(
+      recordingId,
+      botSession.meeting_id,
+      botSession.ownerUserId,
+      botSession.platform,
+      botSession.platform,
+      session.r2Key,
+      session.originalFilename,
+      session.mimeType,
+      object?.size ?? session.fileSize,
+      botSession.consent_status,
+      botSession.ownerUserId,
+      now,
+      now,
+      now
+    ),
+    c.env.DB.prepare(
+      "UPDATE bot_sessions SET status = 'completed', leave_time = COALESCE(leave_time, ?), recording_r2_key = ?, updated_at = ? WHERE id = ?"
+    ).bind(now, session.r2Key, now, botSession.id),
+    c.env.DB.prepare("UPDATE upload_sessions SET status = 'completed', updated_at = ? WHERE id = ?").bind(now, session.id),
+    c.env.DB.prepare("UPDATE meetings SET processing_status = 'uploaded', updated_at = ? WHERE id = ?").bind(now, botSession.meeting_id)
+  ]);
+  await enqueueTranscription(c.env, recordingId, botSession.meeting_id);
+  return c.json({ ok: true, recording_id: recordingId, processing_status: "uploaded" }, 201);
 });
 
 apiRoutes.use("*", requireAuth);
@@ -272,6 +361,131 @@ apiRoutes.get("/meetings/:id/audit-log", requireRoles(["admin", "super_admin"]),
     .bind(meetingId)
     .all();
   return c.json({ audit_logs: logs.results });
+});
+
+apiRoutes.post("/bots/join-now", async (c) => {
+  const input = await parseJson(c, botJoinSchema);
+  await assertCanAccessMeeting(c, input.meeting_id);
+  if (!c.env.MEETING_BOT) throw new ApiError(500, "meeting_bot_not_configured", "Cloudflare Container bot binding is not configured.");
+  const meeting = await c.env.DB.prepare(
+    "SELECT id, title, owner_user_id AS ownerUserId, meeting_datetime AS meetingDatetime FROM meetings WHERE id = ? AND deleted_at IS NULL"
+  )
+    .bind(input.meeting_id)
+    .first<{ id: string; title: string; ownerUserId: string; meetingDatetime: string }>();
+  if (!meeting) throw new ApiError(404, "not_found", "Meeting not found.");
+  if (!isAdmin(c.get("user")) && meeting.ownerUserId !== c.get("user").id) {
+    throw new ApiError(403, "forbidden", "Only the meeting owner or an admin can start a recording bot.");
+  }
+
+  const uploadSessionId = id("upload");
+  const botSessionId = id("bot");
+  const token = crypto.randomUUID();
+  const r2Key = `recordings/${meeting.ownerUserId}/${uploadSessionId}.webm`;
+  const origin = new URL(c.req.url).origin;
+  const now = new Date().toISOString();
+  const uploadUrl = `${origin}/api/bot-recordings/upload/${uploadSessionId}?token=${encodeURIComponent(token)}`;
+  const completeUrl = `${origin}/api/bot-recordings/complete-upload?token=${encodeURIComponent(token)}`;
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO upload_sessions (
+        id, user_id, r2_bucket, r2_key, original_filename, mime_type, file_size, source_type, platform,
+        metadata_json, token_hash, status, expires_at, created_at, updated_at
+      ) VALUES (?, ?, 'RECORDINGS', ?, ?, 'video/webm', 1, ?, ?, ?, ?, 'pending', ?, ?, ?)`
+    ).bind(
+      uploadSessionId,
+      meeting.ownerUserId,
+      r2Key,
+      `${input.platform}-${botSessionId}.webm`,
+      input.platform,
+      input.platform,
+      JSON.stringify({ meeting_id: meeting.id, bot_session_id: botSessionId, source_type: input.platform, platform: input.platform }),
+      await sha256(token),
+      new Date(Date.now() + (input.max_duration_seconds ?? 2 * 60 * 60) * 1000 + 1000 * 60 * 30).toISOString(),
+      now,
+      now
+    ),
+    c.env.DB.prepare(
+      `INSERT INTO bot_sessions (
+        id, meeting_id, platform, meeting_url, bot_display_name, status, join_time, upload_session_id,
+        consent_status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, 'join_requested', ?, ?, 'confirmed', ?, ?)`
+    ).bind(botSessionId, meeting.id, input.platform, input.meeting_url, botDisplayName, now, uploadSessionId, now, now),
+    c.env.DB.prepare("UPDATE meetings SET processing_status = 'uploaded', updated_at = ? WHERE id = ?").bind(now, meeting.id)
+  ]);
+
+  const container = getContainer(c.env.MEETING_BOT, botSessionId);
+  const response = await container.fetch(
+    new Request("http://meeting-bot/join", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        botSessionId,
+        platform: input.platform,
+        meetingUrl: input.meeting_url,
+        displayName: botDisplayName,
+        uploadUrl,
+        completeUrl,
+        maxDurationSeconds: input.max_duration_seconds ?? 2 * 60 * 60
+      })
+    })
+  );
+  if (!response.ok) {
+    const errorText = await response.text();
+    await c.env.DB.prepare("UPDATE bot_sessions SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?")
+      .bind(errorText.slice(0, 1000), new Date().toISOString(), botSessionId)
+      .run();
+    throw new ApiError(502, "meeting_bot_start_failed", "The meeting bot container did not accept the join request.", { status: response.status });
+  }
+
+  await writeAuditLog(c, { action: "bot_join", targetType: "meeting", targetId: meeting.id, metadata: { bot_session_id: botSessionId, platform: input.platform } });
+  return c.json({ bot_session_id: botSessionId, status: "join_requested", bot_display_name: botDisplayName }, 202);
+});
+
+apiRoutes.post("/bots/schedule", async (c) => {
+  const input = await parseJson(c, botJoinSchema.extend({ start_time: z.string().min(1) }));
+  const startTime = new Date(input.start_time).getTime();
+  if (Number.isNaN(startTime)) throw new ApiError(400, "invalid_start_time", "start_time must be a valid date/time.");
+  if (startTime > Date.now() + 5 * 60 * 1000) {
+    throw new ApiError(501, "scheduled_bot_requires_cron", "Scheduled bot joins need a Cloudflare Cron Trigger or queue scheduler. Use join-now for immediate test calls.");
+  }
+  return apiRoutes.request("/bots/join-now", {
+    method: "POST",
+    headers: c.req.raw.headers,
+    body: JSON.stringify(input)
+  }, c.env, c.executionCtx);
+});
+
+apiRoutes.get("/bots/:id/status", async (c) => {
+  const botSessionId = c.req.param("id");
+  const botSession = await c.env.DB.prepare("SELECT * FROM bot_sessions WHERE id = ?")
+    .bind(botSessionId)
+    .first<{ meeting_id: string; status: string } & Record<string, unknown>>();
+  if (!botSession) throw new ApiError(404, "not_found", "Bot session not found.");
+  await assertCanAccessMeeting(c, botSession.meeting_id);
+  let containerStatus: unknown = null;
+  if (c.env.MEETING_BOT) {
+    const response = await getContainer(c.env.MEETING_BOT, botSessionId).fetch(new Request(`http://meeting-bot/sessions/${botSessionId}`));
+    containerStatus = response.ok ? await response.json() : { status: "unavailable", http_status: response.status };
+  }
+  return c.json({ bot_session: botSession, container_status: containerStatus });
+});
+
+apiRoutes.post("/bots/:id/leave", async (c) => {
+  const botSessionId = c.req.param("id");
+  const botSession = await c.env.DB.prepare("SELECT * FROM bot_sessions WHERE id = ?")
+    .bind(botSessionId)
+    .first<{ meeting_id: string; status: string } & Record<string, unknown>>();
+  if (!botSession) throw new ApiError(404, "not_found", "Bot session not found.");
+  await assertCanAccessMeeting(c, botSession.meeting_id);
+  if (c.env.MEETING_BOT) {
+    await getContainer(c.env.MEETING_BOT, botSessionId).fetch(new Request(`http://meeting-bot/sessions/${botSessionId}/stop`, { method: "POST" }));
+  }
+  await c.env.DB.prepare("UPDATE bot_sessions SET status = 'leave_requested', leave_time = ?, updated_at = ? WHERE id = ?")
+    .bind(new Date().toISOString(), new Date().toISOString(), botSessionId)
+    .run();
+  await writeAuditLog(c, { action: "bot_leave", targetType: "meeting", targetId: botSession.meeting_id, metadata: { bot_session_id: botSessionId } });
+  return c.json({ ok: true, bot_session_id: botSessionId });
 });
 
 apiRoutes.post("/recordings/upload-url", async (c) => {
@@ -1051,7 +1265,7 @@ async function getMeetingBundle(env: Env, meetingId: string): Promise<unknown> {
   )
     .bind(meetingId)
     .first();
-  const [participants, recordings, transcript, notes, manualNote, actions, decisions, topics] = await Promise.all([
+  const [participants, recordings, transcript, notes, manualNote, actions, decisions, topics, botSessions] = await Promise.all([
     env.DB.prepare("SELECT * FROM meeting_participants WHERE meeting_id = ?").bind(meetingId).all(),
     env.DB.prepare("SELECT * FROM recordings WHERE meeting_id = ? AND deleted_at IS NULL").bind(meetingId).all(),
     env.DB.prepare("SELECT * FROM transcripts WHERE meeting_id = ? ORDER BY created_at DESC LIMIT 1").bind(meetingId).first(),
@@ -1059,7 +1273,8 @@ async function getMeetingBundle(env: Env, meetingId: string): Promise<unknown> {
     env.DB.prepare("SELECT content FROM manual_notes WHERE meeting_id = ? ORDER BY updated_at DESC LIMIT 1").bind(meetingId).first<{ content: string }>(),
     env.DB.prepare("SELECT * FROM action_items WHERE meeting_id = ? ORDER BY created_at DESC").bind(meetingId).all(),
     env.DB.prepare("SELECT * FROM decisions WHERE meeting_id = ? ORDER BY created_at DESC").bind(meetingId).all(),
-    env.DB.prepare("SELECT * FROM topics WHERE meeting_id = ? ORDER BY sort_order ASC").bind(meetingId).all()
+    env.DB.prepare("SELECT * FROM topics WHERE meeting_id = ? ORDER BY sort_order ASC").bind(meetingId).all(),
+    env.DB.prepare("SELECT * FROM bot_sessions WHERE meeting_id = ? ORDER BY created_at DESC").bind(meetingId).all()
   ]);
   return {
     ...meeting,
@@ -1070,7 +1285,8 @@ async function getMeetingBundle(env: Env, meetingId: string): Promise<unknown> {
     manual_notes: manualNote?.content ?? "",
     action_items: actions.results,
     decisions: decisions.results,
-    topics: topics.results
+    topics: topics.results,
+    bot_sessions: botSessions.results
   };
 }
 
@@ -1258,6 +1474,7 @@ function getSystemStatus(env: Env): {
   google_oauth_configured: boolean;
   cloudflare_workers_ai_configured: boolean;
   claude_configured: boolean;
+  meeting_bot_configured: boolean;
   transcription_model: string;
   claude_model: string;
   required_action: string[];
@@ -1267,12 +1484,14 @@ function getSystemStatus(env: Env): {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) requiredAction.push("Configure Google OAuth secrets.");
   if (!env.AI) requiredAction.push("Configure the Cloudflare Workers AI binding.");
   if (!env.ANTHROPIC_API_KEY) requiredAction.push("Set ANTHROPIC_API_KEY with npx wrangler secret put ANTHROPIC_API_KEY.");
+  if (!env.MEETING_BOT) requiredAction.push("Deploy the Cloudflare Container bot binding MEETING_BOT.");
 
   return {
     session_secret_configured: Boolean(env.SESSION_SECRET),
     google_oauth_configured: Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET),
     cloudflare_workers_ai_configured: Boolean(env.AI),
     claude_configured: Boolean(env.ANTHROPIC_API_KEY),
+    meeting_bot_configured: Boolean(env.MEETING_BOT),
     transcription_model: env.STT_MODEL || "@cf/openai/whisper-large-v3-turbo",
     claude_model: env.CLAUDE_MODEL || "claude-3-5-sonnet-latest",
     required_action: requiredAction

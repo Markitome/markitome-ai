@@ -57,3 +57,19 @@ dead_letter_queue = "notetaker-ai-notes-dlq"
 [[vectorize]]
 binding = "MEETING_SEARCH"
 index_name = "notetaker-meeting-search"
+
+[durable_objects]
+bindings = [
+  { name = "MEETING_BOT", class_name = "MeetingBotContainer" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MeetingBotContainer"]
+
+[[containers]]
+class_name = "MeetingBotContainer"
+image = "./containers/meeting-bot/Dockerfile"
+image_build_context = "./containers/meeting-bot"
+instance_type = "standard-1"
+max_instances = 10
