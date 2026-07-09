@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import type { AppVariables, Env, MeetingPlatform } from "../../types";
 import { BotSessionService } from "../bots/BotSessionService";
@@ -601,61 +601,6 @@ apiRoutes.get("/integrations/google-calendar/connect", async (c) => {
     prompt: "consent"
   });
   return c.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
-});
-
-apiRoutes.get("/integrations/google-calendar/callback", async (c) => {
-  const code = c.req.query("code");
-  const state = c.req.query("state");
-  const expectedState = getCookie(c, googleCalendarStateCookie);
-  deleteCookie(c, googleCalendarStateCookie, { path: "/" });
-  if (!code || !state || state !== expectedState) throw new ApiError(400, "invalid_oauth_state", "Google Calendar OAuth state could not be verified.");
-  if (!c.env.GOOGLE_CLIENT_ID || !c.env.GOOGLE_CLIENT_SECRET) return c.redirect("/setup-required?missing=GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET");
-
-  const origin = new URL(c.req.url).origin;
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: c.env.GOOGLE_CLIENT_ID,
-      client_secret: c.env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: `${origin}/api/integrations/google-calendar/callback`,
-      grant_type: "authorization_code"
-    })
-  });
-  if (!tokenResponse.ok) throw new ApiError(401, "calendar_oauth_exchange_failed", "Google Calendar OAuth token exchange failed.");
-  const tokenJson = (await tokenResponse.json()) as {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-    scope?: string;
-    token_type?: string;
-  };
-  if (!tokenJson.access_token) throw new ApiError(401, "calendar_missing_access_token", "Google did not return a Calendar access token.");
-
-  const user = c.get("user");
-  const existing = await getGoogleCalendarIntegration(c.env, user.id);
-  const existingConfig = existing ? safeParseIntegrationConfig(existing.config_json) : {};
-  const config = {
-    ...existingConfig,
-    user_id: user.id,
-    email: user.email,
-    scope: tokenJson.scope ?? googleCalendarScope,
-    access_token: tokenJson.access_token,
-    refresh_token: tokenJson.refresh_token ?? existingConfig.refresh_token ?? null,
-    expires_at: new Date(Date.now() + (tokenJson.expires_in ?? 3600) * 1000).toISOString(),
-    connected_at: existingConfig.connected_at ?? new Date().toISOString(),
-    updated_at: new Date().toISOString()
-  };
-  await c.env.DB.prepare(
-    `INSERT INTO integrations (id, provider, status, config_json, created_at, updated_at)
-     VALUES (?, 'google_calendar', 'enabled', ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET status = 'enabled', config_json = excluded.config_json, updated_at = excluded.updated_at`
-  )
-    .bind(googleCalendarIntegrationId(user.id), JSON.stringify(config), new Date().toISOString(), new Date().toISOString())
-    .run();
-  await writeAuditLog(c, { action: "integration_change", targetType: "integration", targetId: "google_calendar", metadata: { connected: true } });
-  return c.redirect("/integrations?connected=google_calendar");
 });
 
 apiRoutes.get("/integrations/google-calendar/status", async (c) => {

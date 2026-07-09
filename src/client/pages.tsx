@@ -1189,11 +1189,30 @@ async function loadPanel(panel) {
   const output = panel.querySelector(".json-output") || panel;
   try {
     const response = await fetch(panel.dataset.load, { headers: { accept: "application/json" } });
-    const json = await response.json();
+    const json = await readApiResponse(response);
     if (!response.ok) throw new Error(json?.error?.message || "Request failed with status " + response.status);
     output.outerHTML = renderData(panel.dataset.load || "", json);
   } catch (error) {
     output.outerHTML = '<div class="error-state">' + escapeHtml(error.message || String(error)) + '</div>';
+  }
+}
+
+async function readApiResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+  if (!text) return {};
+  if (contentType.includes("application/json")) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("The server returned invalid JSON.");
+    }
+  }
+  if (!response.ok) throw new Error(text.slice(0, 500));
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text };
   }
 }
 
@@ -1476,7 +1495,7 @@ async function uploadBlob(blob, metadata, filename) {
       consent_status: "confirmed"
     })
   });
-  const uploadInfo = await uploadUrlResponse.json();
+  const uploadInfo = await readApiResponse(uploadUrlResponse);
   if (!uploadUrlResponse.ok) throw new Error(JSON.stringify(uploadInfo));
   const putResponse = await fetch(uploadInfo.upload_url, { method: "PUT", body: blob, headers: { "content-type": blob.type || "application/octet-stream" } });
   if (!putResponse.ok) {
@@ -1488,7 +1507,7 @@ async function uploadBlob(blob, metadata, filename) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ upload_session_id: uploadInfo.upload_session_id })
   });
-  const completeJson = await completeResponse.json();
+  const completeJson = await readApiResponse(completeResponse);
   if (!completeResponse.ok) throw new Error(JSON.stringify(completeJson));
   return completeJson;
 }
@@ -1541,7 +1560,7 @@ $("#newMeetingForm")?.addEventListener("submit", async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const json = await response.json();
+    const json = await readApiResponse(response);
     if (!response.ok) throw new Error(JSON.stringify(json));
     result.textContent = "Meeting note created. Opening workspace...";
     window.location.href = "/meetings/" + encodeURIComponent(json.meeting.id);
@@ -1553,7 +1572,7 @@ $("#newMeetingForm")?.addEventListener("submit", async (event) => {
 $("#searchForm")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const response = await fetch("/api/search?q=" + encodeURIComponent(event.currentTarget.q.value));
-  $("#searchResult").textContent = JSON.stringify(await response.json(), null, 2);
+  $("#searchResult").textContent = JSON.stringify(await readApiResponse(response), null, 2);
 });
 
 for (const button of $$("[data-ask]")) {
@@ -1584,7 +1603,7 @@ $("#importCalendarEvents")?.addEventListener("click", async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ days: 7 })
     });
-    const json = await response.json();
+    const json = await readApiResponse(response);
     if (!response.ok) throw new Error(json?.error?.message || JSON.stringify(json));
     result.textContent = JSON.stringify(json, null, 2);
     button.textContent = "Imported";
@@ -1603,7 +1622,7 @@ for (const button of $$("[data-regenerate-notes]")) {
     button.textContent = "Queueing...";
     try {
       const response = await fetch("/api/meetings/" + encodeURIComponent(meetingId) + "/regenerate-ai-notes", { method: "POST" });
-      const json = await response.json();
+      const json = await readApiResponse(response);
       if (!response.ok) throw new Error(json?.error?.message || JSON.stringify(json));
       button.textContent = "Queued";
     } catch (error) {
@@ -1624,7 +1643,7 @@ $("#manualTranscriptForm")?.addEventListener("submit", async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const json = await response.json();
+    const json = await readApiResponse(response);
     if (!response.ok) throw new Error(JSON.stringify(json));
     result.textContent = JSON.stringify(json, null, 2);
   } catch (error) {
