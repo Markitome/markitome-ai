@@ -40,7 +40,7 @@
     "APPROVED_EMAIL_ALLOWLIST": "",
     "TEXT_MODEL_PROVIDER": "openai",
     "STRUCTURED_TEXT_PROVIDER": "openai",
-    "OPENAI_TEXT_MODEL": "gpt-5.4-mini",
+    "OPENAI_TEXT_MODEL": "gpt-5.6-luna",
     "ANTHROPIC_TEXT_MODEL": "claude-sonnet-5",
     "ANTHROPIC_VERSION": "2023-06-01",
     "ANTHROPIC_MAX_TOKENS": "4096",
