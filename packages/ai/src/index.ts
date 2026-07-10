@@ -36,7 +36,7 @@ import {
   proposalTermsAndConditions
 } from "@markitome/shared";
 
-export const DEFAULT_TEXT_MODEL = "gpt-5.4-mini";
+export const DEFAULT_TEXT_MODEL = "gpt-5.6-luna";
 export const DEFAULT_ANTHROPIC_TEXT_MODEL = "claude-sonnet-5";
 export const DEFAULT_NANO_BANANA_MODEL = "gemini-3.1-flash-image";
 export const DEFAULT_SEEDANCE_ENDPOINT = "bytedance/seedance-2.0/text-to-video";
